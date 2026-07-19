@@ -1,4 +1,5 @@
 import express from 'express';
+import supabase from './db.js';
 import { createMatch, joinMatch } from './matchController.js';
 
 const router = express.Router();
@@ -33,6 +34,30 @@ router.post('/join', async (req, res) => {
     return res.status(200).json(match);
   } catch (error) {
     console.error('Error in /join route:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /:id
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: match, error } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    return res.status(200).json(match);
+  } catch (error) {
     return res.status(500).json({ error: error.message });
   }
 });
