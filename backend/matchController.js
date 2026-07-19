@@ -88,3 +88,90 @@ export async function createMatch(player1Id, minRating, maxRating) {
     throw error;
   }
 }
+
+/**
+ * Joins an existing lockout match.
+ * 
+ * @param {string} player2Id - The ID of the joining player.
+ * @param {string} roomCode - The 4-digit room code.
+ * @returns {Promise<Object>} The updated match record.
+ */
+export async function joinMatch(player2Id, roomCode) {
+  try {
+    // a. Check if Player 2 is already marked as 'busy' in the 'users' table
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('status')
+      .eq('id', player2Id)
+      .single();
+
+    if (userError) {
+      throw new Error(`Failed to fetch player status: ${userError.message}`);
+    }
+
+    if (user && user.status === 'busy') {
+      throw new Error('Player is currently busy and cannot join a match.');
+    }
+
+    // b. Look up the match in the 'matches' table
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('room_code', roomCode)
+      .eq('status', 'waiting')
+      .maybeSingle();
+
+    if (matchError) {
+      throw new Error(`Database error while searching for match: ${matchError.message}`);
+    }
+
+    if (!match) {
+      throw new Error('Match not found or already started');
+    }
+
+    // c. Verify that Player 2's ID is NOT the same as 'player_1_id'
+    if (match.player_1_id === player2Id) {
+      throw new Error('You cannot duel yourself.');
+    }
+
+    // d. Update the 'matches' row
+    const { data: updatedMatch, error: updateMatchError } = await supabase
+      .from('matches')
+      .update({
+        player_2_id: player2Id,
+        status: 'active',
+      })
+      .eq('id', match.id)
+      .select()
+      .single();
+
+    if (updateMatchError) {
+      throw new Error(`Failed to join match: ${updateMatchError.message}`);
+    }
+
+    // e. Set Player 2's status flag to 'busy' in the 'users' table
+    const { error: updateUserError } = await supabase
+      .from('users')
+      .update({ status: 'busy' })
+      .eq('id', player2Id);
+
+    if (updateUserError) {
+      // Rollback match update to preserve status consistency
+      await supabase
+        .from('matches')
+        .update({
+          player_2_id: null,
+          status: 'waiting',
+        })
+        .eq('id', match.id);
+      throw new Error(`Failed to update player status to busy: ${updateUserError.message}`);
+    }
+
+    // f. Return the updated match record
+    return updatedMatch;
+  } catch (error) {
+    console.error('Error in joinMatch:', error.message);
+    throw error;
+  }
+}
+

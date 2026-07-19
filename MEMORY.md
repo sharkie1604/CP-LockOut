@@ -3,10 +3,10 @@
 ## Current Completed Features
 - [x] Phase 1: Environment Monorepo Scaffold
 - [/] Phase 2: Supabase Schema Configuration (In Progress - Specifications Locked)
-- [ ] Phase 3: Central Backend Worker Loop (Pending)
+- [/] Phase 3: Central Backend Worker Loop (In Progress)
 
 ## Current Execution Focus
-- Codeforces integration helper (`codeforces.js`) and Match creation controller (`matchController.js`) created. Ready for full database schema tables DDL setup.
+- Background polling loop (`matchWorker.js`) implemented with conveyor belt rate-limiting for Mode A matches. Ready for database migrations and frontend connection components.
 
 ## State Variables & Key Mappings
 - **Developer Stack Hierarchy (Rating Tiers & Colors)**:
