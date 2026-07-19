@@ -37,6 +37,7 @@ function App() {
   useEffect(() => {
     if (!activeMatch) return;
 
+    console.log(`[REALTIME] Subscribing to channel: match:${activeMatch.id}`);
     const channel = supabase.channel(`match:${activeMatch.id}`);
 
     channel
@@ -47,6 +48,7 @@ function App() {
       .subscribe();
 
     return () => {
+      console.log(`[REALTIME] Unsubscribing from channel: match:${activeMatch.id}`);
       supabase.removeChannel(channel);
     };
   }, [activeMatch?.id]);
