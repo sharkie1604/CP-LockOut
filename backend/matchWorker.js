@@ -1,11 +1,87 @@
 import axios from 'axios';
 import supabase from './db.js';
+import { calculateNewRatings } from './elo.js';
 
-// Simple placeholder for Elo calculation wrapper
+// Calculates and updates Elo ratings for completed match players
 async function triggerEloCalculation(matchId) {
-  console.log(`[ELO] Triggering Elo calculation wrapper for match ${matchId}`);
-  // In a full implementation, this would fetch the match, calculate new ratings,
-  // update the users table ratings, and log to leaderboard/match history.
+  try {
+    console.log(`[ELO] Triggering Elo calculation for match ${matchId}`);
+    
+    // 1. Fetch the completed match
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('id', matchId)
+      .single();
+
+    if (matchError || !match) {
+      throw new Error(`Match not found for Elo calculation: ${matchError?.message}`);
+    }
+
+    const { player_1_id, player_2_id, player_1_score, player_2_score } = match;
+
+    if (!player_1_id || !player_2_id) {
+      throw new Error('Match must have two players for rating calculation.');
+    }
+
+    // 2. Fetch current user ratings
+    const { data: players, error: playersError } = await supabase
+      .from('users')
+      .select('id, rating')
+      .in('id', [player_1_id, player_2_id]);
+
+    if (playersError || !players || players.length < 2) {
+      throw new Error(`Could not fetch rating for both players: ${playersError?.message}`);
+    }
+
+    const player1 = players.find(p => p.id === player_1_id);
+    const player2 = players.find(p => p.id === player_2_id);
+
+    const r1 = player1.rating || 1500;
+    const r2 = player2.rating || 1500;
+
+    // 3. Determine outcome (1 if player 1 wins, 0 if player 2 wins, 0.5 for tie)
+    let outcome = 0.5;
+    let winnerId = null;
+    
+    if (player_1_score > player_2_score) {
+      outcome = 1;
+      winnerId = player_1_id;
+    } else if (player_2_score > player_1_score) {
+      outcome = 0;
+      winnerId = player_2_id;
+    }
+
+    // Update winner_id in the match row if it isn't set yet
+    if (winnerId) {
+      await supabase
+        .from('matches')
+        .update({ winner_id: winnerId })
+        .eq('id', matchId);
+    }
+
+    // 4. Calculate new ratings
+    const { newPlayer1Rating, newPlayer2Rating } = calculateNewRatings(r1, r2, outcome);
+
+    // 5. Update user rating points in the database
+    const { error: update1Error } = await supabase
+      .from('users')
+      .update({ rating: newPlayer1Rating })
+      .eq('id', player_1_id);
+
+    const { error: update2Error } = await supabase
+      .from('users')
+      .update({ rating: newPlayer2Rating })
+      .eq('id', player_2_id);
+
+    if (update1Error || update2Error) {
+      throw new Error(`Failed to update ratings: ${update1Error?.message || update2Error?.message}`);
+    }
+
+    console.log(`[ELO] Ratings updated successfully. Player 1: ${r1} -> ${newPlayer1Rating}. Player 2: ${r2} -> ${newPlayer2Rating}`);
+  } catch (error) {
+    console.error(`[ELO ERROR] Error calculating ratings for match ${matchId}:`, error.message);
+  }
 }
 
 /**

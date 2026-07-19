@@ -6,7 +6,7 @@
 - [/] Phase 3: Central Backend Worker Loop (In Progress)
 
 ## Current Execution Focus
-- Background polling loop (`matchWorker.js`) implemented with conveyor belt rate-limiting for Mode A matches. Ready for database migrations and frontend connection components.
+- Background polling loop (`matchWorker.js`) and Elo rating math calculator (`elo.js`) fully implemented and integrated. Ready for full database schema DDL setup.
 
 ## State Variables & Key Mappings
 - **Developer Stack Hierarchy (Rating Tiers & Colors)**:
