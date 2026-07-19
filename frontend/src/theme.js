@@ -20,20 +20,20 @@ export const theme = {
  */
 export function getDeveloperTier(rating) {
   if (rating === undefined || rating === null) {
-    return { name: 'Script Kiddie', colorHex: '#94A3B8', tailwindTextClass: 'text-slate-400' };
+    return { name: 'Script Kiddie', colorHex: '#9E9E9E', tailwindTextClass: 'text-[#9E9E9E]' };
   }
   
   if (rating < 1200) {
-    return { name: 'Script Kiddie', colorHex: '#94A3B8', tailwindTextClass: 'text-slate-400' };
+    return { name: 'Script Kiddie', colorHex: '#9E9E9E', tailwindTextClass: 'text-[#9E9E9E]' };
   } else if (rating < 1400) {
-    return { name: 'Debugger', colorHex: '#22C55E', tailwindTextClass: 'text-green-500' };
+    return { name: 'Debugger', colorHex: '#4CAF50', tailwindTextClass: 'text-[#4CAF50]' };
   } else if (rating < 1600) {
-    return { name: 'Stack Overlord', colorHex: '#06B6D4', tailwindTextClass: 'text-cyan-500' };
+    return { name: 'Stack Overlord', colorHex: '#00BCD4', tailwindTextClass: 'text-[#00BCD4]' };
   } else if (rating < 1900) {
-    return { name: 'Core Engineer', colorHex: '#3B82F6', tailwindTextClass: 'text-blue-500' };
+    return { name: 'Core Engineer', colorHex: '#2196F3', tailwindTextClass: 'text-[#2196F3]' };
   } else if (rating < 2200) {
-    return { name: 'System Architect', colorHex: '#A855F7', tailwindTextClass: 'text-purple-500' };
+    return { name: 'System Architect', colorHex: '#9C27B0', tailwindTextClass: 'text-[#9C27B0]' };
   } else {
-    return { name: 'Kernel Master', colorHex: '#EF4444', tailwindTextClass: 'text-red-500' };
+    return { name: 'Kernel Master', colorHex: '#FF5722', tailwindTextClass: 'text-[#FF5722]' };
   }
 }

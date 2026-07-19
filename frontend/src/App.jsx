@@ -20,6 +20,18 @@ function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const getPlayerProfile = (id) => {
+    if (!id) return null;
+    const user = MOCK_USERS.find((u) => u.id === id);
+    if (user) return user;
+    return { id, handle: `Player_${id.slice(0, 4)}`, rating: 1000 };
+  };
+
+  const player1Profile = activeMatch ? getPlayerProfile(activeMatch.player_1_id) : null;
+  const player2Profile = activeMatch ? getPlayerProfile(activeMatch.player_2_id) : null;
+  const p1Tier = player1Profile ? getDeveloperTier(player1Profile.rating) : null;
+  const p2Tier = player2Profile ? getDeveloperTier(player2Profile.rating) : null;
+
   // Poll match updates every 3 seconds if in an active/waiting room
   useEffect(() => {
     if (!activeMatch) return;
@@ -238,10 +250,15 @@ function App() {
                 <div>
                   <span className="text-xs text-slate-400 font-mono">PLAYER 1 (CHALLENGER)</span>
                   <div className="text-lg font-bold flex items-center space-x-2 mt-1">
-                    <span> tourist </span>
-                    <span className="text-xs px-2 py-0.5 bg-[#09090B] border border-[#27272A] font-mono text-red-500 font-bold uppercase">
-                      Kernel Master
-                    </span>
+                    <span>{player1Profile?.handle || 'Unknown'}</span>
+                    {p1Tier && (
+                      <span 
+                        className="text-xs px-2 py-0.5 bg-[#09090B] border font-mono font-bold uppercase"
+                        style={{ color: p1Tier.colorHex, borderColor: p1Tier.colorHex }}
+                      >
+                        {p1Tier.name}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="text-right">
@@ -259,10 +276,15 @@ function App() {
                     <div>
                       <span className="text-xs text-slate-400 font-mono">PLAYER 2 (OPPONENT)</span>
                       <div className="text-lg font-bold flex items-center space-x-2 mt-1">
-                        <span> Benq </span>
-                        <span className="text-xs px-2 py-0.5 bg-[#09090B] border border-[#27272A] font-mono text-red-500 font-bold uppercase">
-                          Kernel Master
-                        </span>
+                        <span>{player2Profile?.handle || 'Unknown'}</span>
+                        {p2Tier && (
+                          <span 
+                            className="text-xs px-2 py-0.5 bg-[#09090B] border font-mono font-bold uppercase"
+                            style={{ color: p2Tier.colorHex, borderColor: p2Tier.colorHex }}
+                          >
+                            {p2Tier.name}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -293,7 +315,8 @@ function App() {
               <div className="space-y-4">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
                   const isLocked = problem.locked === true;
-                  const solverHandle = isLocked ? (problem.locked_by === activeMatch.player_1_id ? 'tourist' : 'Benq') : '';
+                  const solverProfile = isLocked ? getPlayerProfile(problem.locked_by) : null;
+                  const solverHandle = solverProfile ? solverProfile.handle : '';
 
                   return (
                     <div
