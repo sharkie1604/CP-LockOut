@@ -1,0 +1,16 @@
+# Lockout.io Core Development Rules
+
+## Tech Stack Boundaries
+- **Frontend:** React (Vite) + Tailwind CSS. Hosted on Vercel.
+- **Backend:** Node.js + Express (ES Modules: use 'import', not 'require'). Hosted on Render.
+- **Database:** Supabase (PostgreSQL) using the Supabase client SDK. Use Supabase Realtime for broadcasting scores. Do NOT build a custom WebSocket/Socket.io layer unless explicitly told.
+- **Problem Pool:** Codeforces Public API & Codeforces Contest API.
+
+## Code Style & Guardrails
+- Keep components small and modular.
+- Avoid third-party state managers (Redux/Zustand) unless state scales heavily. Use React Context or pull directly from Supabase Realtime streams.
+- All backend timers for Codeforces polling must channel through a centralized background queue loop. Do NOT spawn separate setInterval loops per user lobby.
+- Never write placeholder data ("Sample User"). Use real structure.
+
+## Context Preservation Protocol
+- Before modifying or creating files, check against `MEMORY.md` to ensure architectural continuity.
