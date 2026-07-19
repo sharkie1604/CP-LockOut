@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getDeveloperTier } from './theme.js';
 import { createMatch, joinMatch, getMatch } from './api.js';
+import { supabase } from './db.js';
 
 // Pre-defined Mock Users for development testing
 const MOCK_USERS = [
@@ -32,21 +33,23 @@ function App() {
   const p1Tier = player1Profile ? getDeveloperTier(player1Profile.rating) : null;
   const p2Tier = player2Profile ? getDeveloperTier(player2Profile.rating) : null;
 
-  // Poll match updates every 3 seconds if in an active/waiting room
+  // Subscribe to real-time match state updates via Supabase broadcast channel
   useEffect(() => {
     if (!activeMatch) return;
 
-    const interval = setInterval(async () => {
-      try {
-        const freshMatch = await getMatch(activeMatch.id);
-        setActiveMatch(freshMatch);
-      } catch (err) {
-        console.error('Failed to poll match status:', err.message);
-      }
-    }, 3000);
+    const channel = supabase.channel(`match:${activeMatch.id}`);
 
-    return () => clearInterval(interval);
-  }, [activeMatch]);
+    channel
+      .on('broadcast', { event: 'match_update' }, ({ payload }) => {
+        console.log('[REALTIME] Received match update:', payload);
+        setActiveMatch(payload);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [activeMatch?.id]);
 
   const handleCreateMatch = async () => {
     setLoading(true);
