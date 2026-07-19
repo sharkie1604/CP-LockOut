@@ -1,6 +1,7 @@
 import axios from 'axios';
 import supabase from './db.js';
 import { calculateNewRatings } from './elo.js';
+import { broadcastMatchUpdate } from './matchController.js';
 
 // Calculates and updates Elo ratings for completed match players
 async function triggerEloCalculation(matchId) {
@@ -270,10 +271,15 @@ async function processActiveMatches() {
 
       if (updateError) {
         console.error(`Failed to update match ${currentMatch.id}:`, updateError.message);
-      } else if (allLocked) {
-        console.log(`[MATCH COMPLETE] Match ${currentMatch.id} completed! All problems solved.`);
-        await freePlayers(currentMatch.player_1_id, currentMatch.player_2_id);
-        await triggerEloCalculation(currentMatch.id);
+      } else {
+        // Broadcast the update immediately
+        broadcastMatchUpdate(finalMatch.id, finalMatch);
+
+        if (allLocked) {
+          console.log(`[MATCH COMPLETE] Match ${currentMatch.id} completed! All problems solved.`);
+          await freePlayers(currentMatch.player_1_id, currentMatch.player_2_id);
+          await triggerEloCalculation(currentMatch.id);
+        }
       }
     }
   }

@@ -2,11 +2,11 @@
 
 ## Current Completed Features
 - [x] Phase 1: Environment Monorepo Scaffold
-- [/] Phase 2: Supabase Schema Configuration (In Progress - Specifications Locked)
+- [x] Phase 2: Supabase Schema Configuration
 - [/] Phase 3: Central Backend Worker Loop (In Progress)
 
 ## Current Execution Focus
-- Background polling loop (`matchWorker.js`) and Elo rating math calculator (`elo.js`) fully implemented and integrated. Ready for full database schema DDL setup.
+- Match router endpoints (`matchRoutes.js`) integrated into `server.js` with background worker startup. Real-time Supabase broadcast trigger active on match changes. Ready for database deployment validation and UI development.
 
 ## State Variables & Key Mappings
 - **Developer Stack Hierarchy (Rating Tiers & Colors)**:

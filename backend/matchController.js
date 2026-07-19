@@ -167,6 +167,9 @@ export async function joinMatch(player2Id, roomCode) {
       throw new Error(`Failed to update player status to busy: ${updateUserError.message}`);
     }
 
+    // Trigger Supabase real-time broadcast channel payload transmission
+    broadcastMatchUpdate(updatedMatch.id, updatedMatch);
+
     // f. Return the updated match record
     return updatedMatch;
   } catch (error) {
@@ -174,4 +177,28 @@ export async function joinMatch(player2Id, roomCode) {
     throw error;
   }
 }
+
+/**
+ * Broadcasts match updates over a Supabase Realtime channel.
+ * 
+ * @param {string} matchId 
+ * @param {Object} matchData 
+ */
+export function broadcastMatchUpdate(matchId, matchData) {
+  const channel = supabase.channel(`match:${matchId}`);
+  channel.subscribe((status) => {
+    if (status === 'SUBSCRIBED') {
+      channel.send({
+        type: 'broadcast',
+        event: 'match_update',
+        payload: matchData,
+      }).then(() => {
+        supabase.removeChannel(channel);
+      }).catch((err) => {
+        console.error('Error sending broadcast:', err.message);
+      });
+    }
+  });
+}
+
 
