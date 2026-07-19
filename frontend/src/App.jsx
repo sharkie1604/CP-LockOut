@@ -320,13 +320,20 @@ function App() {
               <div className="space-y-4">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
                   const isLocked = problem.locked === true;
+                  const isCurrentUserLock = isLocked && problem.locked_by === currentUser.id;
                   const solverProfile = isLocked ? getPlayerProfile(problem.locked_by) : null;
                   const solverHandle = solverProfile ? solverProfile.handle : '';
 
                   return (
                     <div
                       key={`${problem.contestId}-${problem.index}`}
-                      className={`bg-[#09090B] border ${isLocked ? 'border-red-500/50' : 'border-[#27272A]'} p-4 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0`}
+                      className={`border p-4 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 transition-all duration-200 ${
+                        isCurrentUserLock 
+                          ? 'bg-[#10B981]/10 border-[#10B981]' 
+                          : isLocked 
+                            ? 'bg-[#09090B] border-[#EF4444]/50' 
+                            : 'bg-[#09090B] border-[#27272A]'
+                      }`}
                     >
                       <div className="space-y-1">
                         <div className="flex items-center space-x-3">
@@ -342,8 +349,8 @@ function App() {
                             {problem.name}
                           </a>
                         </div>
-                        <div className="flex space-x-4 text-xs font-mono text-slate-400">
-                          <span>DIFFICULTY: <span className="text-white">{problem.rating}</span></span>
+                        <div className="flex space-x-4 text-xs font-mono text-slate-400 font-mono">
+                          <span>DIFFICULTY: <span className="text-white font-mono">{problem.rating}</span></span>
                         </div>
                       </div>
 
@@ -351,12 +358,18 @@ function App() {
                       <div className="flex items-center space-x-6 w-full md:w-auto justify-between md:justify-end">
                         <div className="text-right">
                           <span className="text-[10px] text-slate-500 font-mono uppercase block">POINTS</span>
-                          <span className="text-lg font-black font-mono text-[#06B6D4]">+{problem.points}</span>
+                          <span className={`text-lg font-black font-mono ${!isLocked ? 'text-[#06B6D4]' : 'text-slate-500'}`}>
+                            +{problem.points}
+                          </span>
                         </div>
                         
                         <div className="w-32 text-right">
                           {isLocked ? (
-                            <span className="text-xs bg-red-950 border border-red-500/50 text-red-400 font-mono px-2.5 py-1 uppercase font-bold tracking-wider inline-block">
+                            <span 
+                              className={`text-xs bg-red-950 border font-mono px-2.5 py-1 uppercase font-bold tracking-wider inline-block ${
+                                isCurrentUserLock ? 'border-[#10B981] text-[#10B981]' : 'border-[#EF4444]/50 text-red-400'
+                              }`}
+                            >
                               Locked ({solverHandle})
                             </span>
                           ) : (
