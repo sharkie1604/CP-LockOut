@@ -37,8 +37,8 @@ async function triggerEloCalculation(matchId) {
     const player1 = players.find(p => p.id === player_1_id);
     const player2 = players.find(p => p.id === player_2_id);
 
-    const r1 = player1.rating || 1500;
-    const r2 = player2.rating || 1500;
+    const r1 = player1.rating || 1000;
+    const r2 = player2.rating || 1000;
 
     // 3. Determine outcome (1 if player 1 wins, 0 if player 2 wins, 0.5 for tie)
     let outcome = 0.5;
