@@ -185,20 +185,15 @@ export async function joinMatch(player2Id, roomCode) {
  * @param {Object} matchData 
  */
 export function broadcastMatchUpdate(matchId, matchData) {
-  const channel = supabase.channel(`match:${matchId}`);
-  channel.subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      channel.send({
-        type: 'broadcast',
-        event: 'match_update',
-        payload: matchData,
-      }).then(() => {
-        supabase.removeChannel(channel);
-      }).catch((err) => {
-        console.error('Error sending broadcast:', err.message);
-      });
-    }
-  });
+  console.log(`[BROADCAST] Sending real-time match state update for room ${matchId}`);
+  
+  // Directly send the broadcast event without stacking fresh nested subscription hooks
+  supabase.channel(`match:${matchId}`)
+    .send({
+      type: 'broadcast',
+      event: 'match_update',
+      payload: matchData,
+    });
 }
 
 
