@@ -354,13 +354,13 @@ function App() {
             </div>
 
             {/* 5-Problem Lockout Grid */}
-            <div className="bg-[#18181B] border border-[#27272A] p-6">
+            <div className="bg-[#09090B] border border-[#27272A] p-6">
               <h3 className="text-sm font-bold font-mono tracking-wider border-b border-[#27272A] pb-3 mb-6 flex items-center space-x-2">
                 <span className="h-2 w-2 bg-[#06B6D4]"></span>
-                <span>LOCKOUT PROBLEM SET</span>
+                <span className="text-slate-300">CYBER-GRID HUD</span>
               </h3>
               
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
                   const isLocked = problem.locked === true;
                   const isCurrentUserLock = isLocked && problem.locked_by === currentUser.id;
@@ -370,53 +370,66 @@ function App() {
                   return (
                     <div
                       key={`${problem.contestId}-${problem.index}`}
-                      className={`border p-4 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 transition-all duration-200 ${
+                      className={`relative border p-6 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 transition-all duration-300 ${
                         isCurrentUserLock 
-                          ? 'bg-[#10B981]/10 border-[#10B981]' 
+                          ? 'bg-[#10B981] border-[#10B981] text-black shadow-[0_0_25px_rgba(16,185,129,0.3)]' 
                           : isLocked 
-                            ? 'bg-[#09090B] border-[#EF4444]/50' 
-                            : 'bg-[#09090B] border-[#27272A]'
+                            ? 'bg-[#18181B] border-[#EF4444] animate-pulse' 
+                            : 'bg-[#18181B] border-[#27272A] hover:border-[#06B6D4] hover:shadow-[0_0_15px_rgba(6,182,212,0.15)]'
                       }`}
                     >
-                      <div className="space-y-1">
+                      {/* Tier Bounty Indicator */}
+                      <div className={`absolute top-0 left-0 px-3 py-1 text-[10px] font-black font-mono uppercase tracking-widest ${
+                        isCurrentUserLock ? 'bg-black text-[#10B981]' : isLocked ? 'bg-[#EF4444] text-white' : 'bg-[#27272A] text-slate-300'
+                      }`}>
+                        {problem.points} PTS
+                      </div>
+
+                      <div className="space-y-1.5 mt-4 md:mt-0 w-full md:w-2/3 pl-2">
                         <div className="flex items-center space-x-3">
-                          <span className="text-sm font-bold font-mono text-slate-400">
+                          <span className={`text-xs font-bold font-mono ${isCurrentUserLock ? 'text-black/60' : 'text-slate-500'}`}>
                             [{problem.contestId}{problem.index}]
                           </span>
-                          <a
-                            href={`https://codeforces.com/problemset/problem/${problem.contestId}/${problem.index}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-bold text-slate-200 hover:text-[#06B6D4] underline transition-colors"
-                          >
-                            {problem.name}
-                          </a>
+                          
+                          {/* Problem Link */}
+                          {isLocked && !isCurrentUserLock ? (
+                            <span className="font-bold text-slate-500 line-through text-lg">
+                              {problem.name}
+                            </span>
+                          ) : (
+                            <a
+                              href={`https://codeforces.com/problemset/problem/${problem.contestId}/${problem.index}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`font-bold text-lg underline transition-colors ${
+                                isCurrentUserLock ? 'text-black hover:text-white' : 'text-slate-200 hover:text-[#06B6D4]'
+                              }`}
+                            >
+                              {problem.name}
+                            </a>
+                          )}
                         </div>
-                        <div className="flex space-x-4 text-xs font-mono text-slate-400 font-mono">
-                          <span>DIFFICULTY: <span className="text-white font-mono">{problem.rating}</span></span>
+                        
+                        <div className={`flex space-x-4 text-xs font-mono ${isCurrentUserLock ? 'text-black/70' : 'text-slate-400'}`}>
+                          <span>DIFFICULTY: <span className={isCurrentUserLock ? 'font-bold text-black' : 'text-white font-mono'}>{problem.rating}</span></span>
                         </div>
                       </div>
 
-                      {/* Points / Status Panel */}
-                      <div className="flex items-center space-x-6 w-full md:w-auto justify-between md:justify-end">
+                      {/* Status / Solver Panel */}
+                      <div className="flex items-center space-x-6 w-full md:w-auto justify-between md:justify-end pr-2">
                         <div className="text-right">
-                          <span className="text-[10px] text-slate-500 font-mono uppercase block">POINTS</span>
-                          <span className={`text-lg font-black font-mono ${!isLocked ? 'text-[#06B6D4]' : 'text-slate-500'}`}>
-                            +{problem.points}
-                          </span>
-                        </div>
-                        
-                        <div className="w-32 text-right">
                           {isLocked ? (
                             <span 
-                              className={`text-xs bg-red-950 border font-mono px-2.5 py-1 uppercase font-bold tracking-wider inline-block ${
-                                isCurrentUserLock ? 'border-[#10B981] text-[#10B981]' : 'border-[#EF4444]/50 text-red-400'
+                              className={`text-xs border font-mono px-4 py-2 uppercase font-black tracking-widest inline-block ${
+                                isCurrentUserLock 
+                                  ? 'border-black text-black bg-black/10' 
+                                  : 'border-[#EF4444] text-[#EF4444] bg-red-950/30'
                               }`}
                             >
-                              Locked ({solverHandle})
+                              LOCKED: {solverHandle}
                             </span>
                           ) : (
-                            <span className="text-xs bg-slate-900 border border-[#27272A] text-slate-400 font-mono px-2.5 py-1 uppercase tracking-wider inline-block">
+                            <span className="text-xs bg-[#09090B] border border-[#27272A] text-[#06B6D4] font-mono px-4 py-2 uppercase font-bold tracking-widest inline-block">
                               OPEN
                             </span>
                           )}
