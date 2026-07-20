@@ -89,6 +89,30 @@ export async function leaveMatch(playerId, matchId) {
 }
 
 /**
+ * Starts a pending match (Host only).
+ * 
+ * @param {string} matchId 
+ * @param {string} playerId 
+ * @returns {Promise<Object>} The started match object.
+ */
+export async function startMatch(matchId, playerId) {
+  const response = await fetch(`${API_BASE_URL}/api/matches/${matchId}/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ playerId }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to start match');
+  }
+
+  return response.json();
+}
+
+/**
  * Fetches any active match involving the current user.
  * 
  * @param {string} playerId 

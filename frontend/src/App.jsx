@@ -1,16 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getDeveloperTier } from './theme.js';
-import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch } from './api.js';
+import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch, startMatch } from './api.js';
 import { supabase } from './db.js';
 
-// Pre-defined Mock Users for development testing
-const MOCK_USERS = [
-  { id: '11111111-1111-1111-1111-111111111111', handle: 'tourist', rating: 3500 },
-  { id: '22222222-2222-2222-2222-222222222222', handle: 'Benq', rating: 3400 },
-  { id: '33333333-3333-3333-3333-333333333333', handle: 'ecnerwala', rating: 3350 },
-  { id: '44444444-4444-4444-4444-444444444444', handle: 'neal', rating: 2800 },
-  { id: '55555555-5555-5555-5555-555555555555', handle: 'lockout_newbie', rating: 1100 },
-];
 
 function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -31,108 +23,290 @@ function App() {
 
   // Phase 5: Onboarding State
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [onboardingForm, setOnboardingForm] = useState({ name: '', college: '', gradYear: '', handle: '' });
-  const [onboardingToken, setOnboardingToken] = useState('');
-  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [onboardingForm, setOnboardingForm] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lockout_onboarding_form');
+      return saved ? JSON.parse(saved) : { name: '', college: '', gradYear: '', handle: '' };
+    } catch {
+      return { name: '', college: '', gradYear: '', handle: '' };
+    }
+  });
+  const [onboardingToken, setOnboardingToken] = useState(() => {
+    try {
+      return localStorage.getItem('lockout_onboarding_token') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [onboardingStep, setOnboardingStep] = useState(() => {
+    try {
+      const saved = localStorage.getItem('lockout_onboarding_step');
+      return saved ? Number(saved) : 1;
+    } catch {
+      return 1;
+    }
+  });
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState('');
 
+  // Persist onboarding state in localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('lockout_onboarding_form', JSON.stringify(onboardingForm));
+    } catch (err) {
+      console.warn('Failed to save form to localStorage:', err);
+    }
+  }, [onboardingForm]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lockout_onboarding_step', String(onboardingStep));
+    } catch (err) {
+      console.warn('Failed to save step to localStorage:', err);
+    }
+  }, [onboardingStep]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('lockout_onboarding_token', onboardingToken);
+    } catch (err) {
+      console.warn('Failed to save token to localStorage:', err);
+    }
+  }, [onboardingToken]);
+
+  const showOnboardingRef = useRef(showOnboarding);
+  useEffect(() => {
+    showOnboardingRef.current = showOnboarding;
+  }, [showOnboarding]);
+
   // Track active Supabase database session state dynamically
   useEffect(() => {
+    let isMounted = true;
     const checkUserSession = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session?.user?.id)
-            .maybeSingle();
+          let profile = null;
+          try {
+            const res = await fetch(`http://localhost:5000/api/profile/${session?.user?.id}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.id) {
+                profile = data;
+              }
+            }
+          } catch (err) {
+            console.error('Backend profile fetch failed:', err);
+          }
           
           if (profile) {
-            setCurrentUser(profile);
+            if (isMounted) {
+              setCurrentUser(profile);
+              if (profile.status === 'VERIFIED' || profile.handle) {
+                setShowOnboarding(false);
+              } else if (profile.status === 'NEW' || !profile.handle) {
+                setShowOnboarding(true);
+                if (!showOnboardingRef.current) {
+                  const savedForm = localStorage.getItem('lockout_onboarding_form');
+                  const savedStep = localStorage.getItem('lockout_onboarding_step');
+                  const savedToken = localStorage.getItem('lockout_onboarding_token');
+
+                  if (!savedForm) {
+                    setOnboardingForm({
+                      name: profile.name || '',
+                      college: profile.college || '',
+                      gradYear: profile.grad_year ? String(profile.grad_year) : '',
+                      handle: profile.handle || ''
+                    });
+                  }
+                  if (!savedStep) setOnboardingStep(1);
+                  if (!savedToken) setOnboardingToken('');
+                  setOnboardingError('');
+                }
+              }
+            }
           } else {
-            setCurrentUser({
-              id: session?.user?.id,
-              handle: '',
-              rating: 1000
-            });
+            if (isMounted) {
+              setCurrentUser({
+                id: session?.user?.id,
+                handle: '',
+                rating: 1000
+              });
+              setShowOnboarding(true);
+              if (!showOnboardingRef.current) {
+                const savedForm = localStorage.getItem('lockout_onboarding_form');
+                const savedStep = localStorage.getItem('lockout_onboarding_step');
+                const savedToken = localStorage.getItem('lockout_onboarding_token');
+
+                if (!savedForm) {
+                  setOnboardingForm({
+                    name: '',
+                    college: '',
+                    gradYear: '',
+                    handle: ''
+                  });
+                }
+                if (!savedStep) setOnboardingStep(1);
+                if (!savedToken) setOnboardingToken('');
+                setOnboardingError('');
+              }
+            }
           }
         } else {
-          setCurrentUser(null);
+          if (isMounted) setCurrentUser(null);
         }
       } catch (err) {
         console.error('Failed to retrieve auth session:', err);
       } finally {
-        setIsAuthInitializing(false);
+        if (isMounted) setIsAuthInitializing(false);
       }
     };
 
     checkUserSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!isMounted) return;
       if (session?.user) {
-        const { data: profile } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session?.user?.id)
-          .maybeSingle();
-        
-        if (profile) {
-          setCurrentUser(profile);
-        } else {
-          setCurrentUser({
-            id: session?.user?.id,
-            handle: '',
-            rating: 1000
-          });
+        setIsAuthInitializing(true); // Block layout rendering while fetching
+        try {
+          let profile = null;
+          try {
+            const res = await fetch(`http://localhost:5000/api/profile/${session?.user?.id}`);
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.id) {
+                profile = data;
+              }
+            }
+          } catch (err) {
+            console.error('Backend profile fetch failed:', err);
+          }
+          
+          if (!isMounted) return;
+          if (profile) {
+            setCurrentUser(profile);
+            if (profile.status === 'VERIFIED' || profile.handle) {
+              setShowOnboarding(false);
+            } else if (profile.status === 'NEW' || !profile.handle) {
+              setShowOnboarding(true);
+              if (!showOnboardingRef.current) {
+                const savedForm = localStorage.getItem('lockout_onboarding_form');
+                const savedStep = localStorage.getItem('lockout_onboarding_step');
+                const savedToken = localStorage.getItem('lockout_onboarding_token');
+
+                if (!savedForm) {
+                  setOnboardingForm({
+                    name: profile.name || '',
+                    college: profile.college || '',
+                    gradYear: profile.grad_year ? String(profile.grad_year) : '',
+                    handle: profile.handle || ''
+                  });
+                }
+                if (!savedStep) setOnboardingStep(1);
+                if (!savedToken) setOnboardingToken('');
+                setOnboardingError('');
+              }
+            }
+          } else {
+            setCurrentUser({
+              id: session?.user?.id,
+              handle: '',
+              rating: 1000
+            });
+            setShowOnboarding(true);
+            if (!showOnboardingRef.current) {
+              const savedForm = localStorage.getItem('lockout_onboarding_form');
+              const savedStep = localStorage.getItem('lockout_onboarding_step');
+              const savedToken = localStorage.getItem('lockout_onboarding_token');
+
+              if (!savedForm) {
+                setOnboardingForm({
+                  name: '',
+                  college: '',
+                  gradYear: '',
+                  handle: ''
+                });
+              }
+              if (!savedStep) setOnboardingStep(1);
+              if (!savedToken) setOnboardingToken('');
+              setOnboardingError('');
+            }
+          }
+        } catch (err) {
+          console.error("Auth state change profile fetch error:", err);
+        } finally {
+          setIsAuthInitializing(false);
         }
       } else {
-        setCurrentUser(null);
+        if (isMounted) {
+          setCurrentUser(null);
+          setIsAuthInitializing(false);
+        }
       }
     });
 
     return () => {
-      subscription.unsubscribe();
+      isMounted = false;
+      if (subscription) subscription.unsubscribe();
     };
   }, []);
 
   const handleOAuthLogin = async () => {
     setAuthError('');
     setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
-    if (error) setAuthError(error.message);
-    setAuthLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+      if (error) setAuthError(error.message);
+    } catch (err) {
+      console.error('OAuth Login Error:', err);
+      setAuthError(err.message || 'An unexpected error occurred during Google sign in.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
     setAuthError('');
+    if (!authEmail || !authPassword) {
+      setAuthError('Email and password are required.');
+      return;
+    }
     setAuthLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
-    if (error) setAuthError(error.message);
-    setAuthLoading(false);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+      if (error) setAuthError(error.message);
+    } catch (err) {
+      console.error('Email Login Error:', err);
+      setAuthError(err.message || 'An unexpected error occurred during email sign in.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleEmailSignup = async (e) => {
     e.preventDefault();
     setAuthError('');
+    if (!authEmail || !authPassword) {
+      setAuthError('Email and password are required.');
+      return;
+    }
     setAuthLoading(true);
-    const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
-    if (error) setAuthError(error.message);
-    else setAuthError('SUCCESS: Check your email for a confirmation link.');
-    setAuthLoading(false);
+    try {
+      const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      if (error) setAuthError(error.message);
+      else setAuthError('SUCCESS: Check your email for a confirmation link.');
+    } catch (err) {
+      console.error('Email Signup Error:', err);
+      setAuthError(err.message || 'An unexpected error occurred during sign up.');
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   useEffect(() => {
     if (currentUser) {
-      if (!currentUser?.name || !currentUser?.college || !currentUser?.gradYear) {
-        setShowOnboarding(true);
-        setOnboardingForm(prev => ({ ...prev, handle: currentUser?.handle || '' }));
-        setOnboardingStep(1);
-        setOnboardingToken('');
-        setOnboardingError('');
-      } else {
+      if (currentUser?.status === 'VERIFIED' || currentUser?.handle) {
         setShowOnboarding(false);
       }
     }
@@ -203,8 +377,16 @@ function App() {
         handle: onboardingForm.handle,
         name: onboardingForm.name,
         college: onboardingForm.college,
-        gradYear: onboardingForm.gradYear
+        gradYear: onboardingForm.gradYear,
+        status: 'VERIFIED'
       }));
+      try {
+        localStorage.removeItem('lockout_onboarding_form');
+        localStorage.removeItem('lockout_onboarding_step');
+        localStorage.removeItem('lockout_onboarding_token');
+      } catch (err) {
+        console.warn('Failed to clear localStorage onboarding state:', err);
+      }
       setShowOnboarding(false);
     } catch (err) {
       setOnboardingError(err.message);
@@ -213,15 +395,8 @@ function App() {
     }
   };
 
-  const getPlayerProfile = (id) => {
-    if (!id) return null;
-    const user = MOCK_USERS.find((u) => u.id === id);
-    if (user) return user;
-    return { id, handle: `Player_${id.slice(0, 4)}`, rating: 1000 };
-  };
-
-  const player1Profile = activeMatch ? getPlayerProfile(activeMatch.player_1_id) : null;
-  const player2Profile = activeMatch ? getPlayerProfile(activeMatch.player_2_id) : null;
+  const player1Profile = activeMatch?.player1_profile || null;
+  const player2Profile = activeMatch?.player2_profile || null;
   const p1Tier = player1Profile ? getDeveloperTier(player1Profile.rating) : null;
   const p2Tier = player2Profile ? getDeveloperTier(player2Profile.rating) : null;
 
@@ -259,13 +434,20 @@ function App() {
   useEffect(() => {
     if (!activeMatch) return;
 
-    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for user: ${currentUser?.id}`);
+    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for match: ${activeMatch?.id}`);
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/matches/active/${currentUser?.id}`);
+        const res = await fetch(`http://localhost:5000/api/matches/${activeMatch?.id}`);
         const data = await res.json();
-        if (data.activeMatch) {
-          setActiveMatch(data.activeMatch);
+        
+        if (data && !data.error) {
+          if (data.status === 'ABANDONED' || data.status === 'ENDED' || data.status === 'finished') {
+            alert(`Match Ended: ${data.status}`);
+            setActiveMatch(null);
+            clearInterval(interval);
+          } else {
+            setActiveMatch(data);
+          }
         }
       } catch (err) {
         console.error("Sync error:", err);
@@ -335,6 +517,13 @@ function App() {
     }
     setActiveMatch(null);
     setError('');
+  };
+
+  const getPlayerProfile = (id) => {
+    if (!activeMatch) return null;
+    if (activeMatch.player_1_id === id) return activeMatch.player1_profile || { handle: 'HOST', id };
+    if (activeMatch.player_2_id === id) return activeMatch.player2_profile || { handle: 'CHALLENGER', id };
+    return null;
   };
 
   return (
@@ -450,83 +639,92 @@ function App() {
                 </div>
               )}
 
-              {onboardingStep === 1 ? (
-                <form onSubmit={handleGenerateToken} className="space-y-5">
-                  <div className="flex flex-col">
-                    <label className="text-xs text-slate-400 font-mono mb-2">FULL NAME</label>
-                    <input
-                      type="text"
-                      value={onboardingForm.name}
-                      onChange={(e) => setOnboardingForm({...onboardingForm, name: e.target.value})}
-                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
-                      placeholder="e.g. John Doe"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-slate-400 font-mono mb-2">COLLEGE NAME</label>
-                    <input
-                      type="text"
-                      value={onboardingForm.college}
-                      onChange={(e) => setOnboardingForm({...onboardingForm, college: e.target.value})}
-                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
-                      placeholder="e.g. MIT"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-slate-400 font-mono mb-2">GRADUATION YEAR</label>
-                    <input
-                      type="text"
-                      maxLength={4}
-                      value={onboardingForm.gradYear}
-                      onChange={(e) => setOnboardingForm({...onboardingForm, gradYear: e.target.value})}
-                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
-                      placeholder="e.g. 2026"
-                    />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-xs text-slate-400 font-mono mb-2">CODEFORCES HANDLE</label>
-                    <input
-                      type="text"
-                      value={onboardingForm.handle}
-                      onChange={(e) => setOnboardingForm({...onboardingForm, handle: e.target.value})}
-                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
-                    />
-                  </div>
+              <form onSubmit={(e) => { e.preventDefault(); }} className="space-y-5">
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">FULL NAME</label>
+                  <input
+                    type="text"
+                    disabled={onboardingStep === 2 || onboardingLoading}
+                    value={onboardingForm.name}
+                    onChange={(e) => setOnboardingForm({...onboardingForm, name: e.target.value})}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4] disabled:opacity-60"
+                    placeholder="e.g. John Doe"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">COLLEGE NAME</label>
+                  <input
+                    type="text"
+                    disabled={onboardingStep === 2 || onboardingLoading}
+                    value={onboardingForm.college}
+                    onChange={(e) => setOnboardingForm({...onboardingForm, college: e.target.value})}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4] disabled:opacity-60"
+                    placeholder="e.g. MIT"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">GRADUATION YEAR</label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    disabled={onboardingStep === 2 || onboardingLoading}
+                    value={onboardingForm.gradYear}
+                    onChange={(e) => setOnboardingForm({...onboardingForm, gradYear: e.target.value})}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4] disabled:opacity-60"
+                    placeholder="e.g. 2026"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">CODEFORCES HANDLE</label>
+                  <input
+                    type="text"
+                    disabled={onboardingStep === 2 || onboardingLoading}
+                    value={onboardingForm.handle}
+                    onChange={(e) => setOnboardingForm({...onboardingForm, handle: e.target.value})}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4] disabled:opacity-60"
+                  />
+                </div>
+
+                {onboardingStep === 1 ? (
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={handleGenerateToken}
                     disabled={onboardingLoading}
                     className="mt-6 w-full bg-[#18181B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
                   >
                     {onboardingLoading ? 'PROCESSING...' : 'GENERATE TOKEN'}
                   </button>
-                </form>
-              ) : (
-                <div className="space-y-6">
-                  <p className="text-sm text-slate-400 leading-relaxed">
-                    Please update your Codeforces Profile First or Last Name to the exact token below to verify ownership of the handle <strong className="text-white">{onboardingForm.handle}</strong>.
-                  </p>
-                  
-                  <div className="bg-[#09090B] border border-[#06B6D4] p-4 text-center">
-                    <span className="text-2xl font-black font-mono tracking-widest text-[#06B6D4]">{onboardingToken}</span>
+                ) : (
+                  <div className="mt-6 space-y-6 pt-4 border-t border-[#27272A]">
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Please update your Codeforces Profile First or Last Name to the exact token below to verify ownership of the handle <strong className="text-white">{onboardingForm.handle}</strong>.
+                    </p>
+                    
+                    <div className="bg-[#09090B] border border-[#06B6D4] p-4 text-center">
+                      <span className="text-2xl font-black font-mono tracking-widest text-[#06B6D4]">{onboardingToken}</span>
+                    </div>
+                    
+                    <div className="flex space-x-4">
+                      <button
+                        type="button"
+                        onClick={() => setOnboardingStep(1)}
+                        disabled={onboardingLoading}
+                        className="w-1/3 bg-[#18181B] border border-[#27272A] hover:bg-[#27272A] text-slate-400 py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200"
+                      >
+                        BACK
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleVerifySetup}
+                        disabled={onboardingLoading}
+                        className="w-2/3 bg-[#18181B] border border-[#10B981] hover:bg-[#10B981] hover:text-[#09090B] text-[#10B981] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
+                      >
+                        {onboardingLoading ? 'VERIFYING...' : 'VERIFY & COMPLETE SETUP'}
+                      </button>
+                    </div>
                   </div>
-                  
-                  <button
-                    onClick={handleVerifySetup}
-                    disabled={onboardingLoading}
-                    className="w-full bg-[#18181B] border border-[#10B981] hover:bg-[#10B981] hover:text-[#09090B] text-[#10B981] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
-                  >
-                    {onboardingLoading ? 'VERIFYING...' : 'VERIFY & COMPLETE SETUP'}
-                  </button>
-                  
-                  <button
-                    onClick={() => setOnboardingStep(1)}
-                    disabled={onboardingLoading}
-                    className="w-full border border-[#27272A] hover:bg-[#27272A] text-slate-400 py-2 text-xs font-mono tracking-wider transition-all duration-200"
-                  >
-                    GO BACK
-                  </button>
-                </div>
-              )}
+                )}
+              </form>
             </div>
           </div>
         ) : (
@@ -709,10 +907,36 @@ function App() {
               </div>
             </div>
 
-            {/* 5-Problem Lockout Grid */}
-            <div className="bg-[#09090B] border border-[#27272A] p-6">
-              
-              <div className="space-y-6">
+            {/* Conditional Lobby or Arena Grid */}
+            {activeMatch.status === 'PENDING' ? (
+              <div className="bg-[#18181B] border border-[#27272A] p-12 flex flex-col items-center justify-center space-y-6">
+                <div className="flex items-center space-x-3">
+                  <span className="h-4 w-4 bg-[#06B6D4] animate-pulse rounded-full"></span>
+                  <h3 className="text-xl font-bold font-mono tracking-widest uppercase text-slate-200">
+                    ARENA LOBBY READY
+                  </h3>
+                </div>
+                {currentUser?.id === activeMatch.player_1_id ? (
+                  <button 
+                    onClick={() => {
+                      setLoading(true);
+                      startMatch(activeMatch.id, currentUser?.id)
+                        .catch(err => setError(err.message))
+                        .finally(() => setLoading(false));
+                    }}
+                    disabled={loading}
+                    className="bg-[#09090B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] px-8 py-4 text-sm font-bold font-mono tracking-wider transition-all duration-200 rounded-none disabled:opacity-50"
+                  >
+                    {loading ? 'STARTING ARENA...' : 'START MATCH NOW'}
+                  </button>
+                ) : (
+                  <p className="text-slate-400 font-mono text-sm uppercase">WAITING FOR HOST TO START ARENA...</p>
+                )}
+              </div>
+            ) : activeMatch.status === 'active' ? (
+              <div className="bg-[#09090B] border border-[#27272A] p-6">
+                {/* 5-Problem Lockout Grid */}
+                <div className="space-y-6">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
                   const isLocked = problem.locked === true;
                   const isCurrentUserLock = isLocked && problem.locked_by === currentUser?.id;
@@ -792,6 +1016,7 @@ function App() {
                 })}
               </div>
             </div>
+            ) : null}
           </div>
         )}
           </>

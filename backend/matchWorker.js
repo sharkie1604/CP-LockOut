@@ -92,13 +92,13 @@ async function freePlayers(player1Id, player2Id) {
   try {
     const { error } = await supabase
       .from('users')
-      .update({ status: 'free' })
+      .update({ status: 'VERIFIED' })
       .in('id', [player1Id, player2Id]);
 
     if (error) {
       console.error(`Failed to free players ${player1Id} and ${player2Id}:`, error.message);
     } else {
-      console.log(`Players ${player1Id} and ${player2Id} are now free.`);
+      console.log(`Players ${player1Id} and ${player2Id} are now VERIFIED.`);
     }
   } catch (err) {
     console.error('Error freeing players:', err.message);
@@ -147,6 +147,18 @@ async function processActiveMatches() {
     return;
   }
 
+  // 1.5 Handle disconnected_at grace periods
+  const activeMatchesToProcess = [];
+  for (const match of matches) {
+    if (match.disconnected_at) {
+      const disconnectedTime = new Date(match.disconnected_at).getTime();
+      if (Date.now() > disconnectedTime + 30000) {
+        console.log(`[LIFECYCLE] Grace period expired for match ${match.id}. Processing abandonment.`);
+        // We will finalize this match after fetching user states in step 3
+      }
+    }
+  }
+
   // 2. Extract unique player IDs
   const playerIds = new Set();
   matches.forEach((m) => {
@@ -156,10 +168,10 @@ async function processActiveMatches() {
 
   if (playerIds.size === 0) return;
 
-  // 3. Fetch handles for all active players
+  // 3. Fetch handles and statuses for all active players
   const { data: users, error: userError } = await supabase
     .from('users')
-    .select('id, handle')
+    .select('id, handle, status')
     .in('id', Array.from(playerIds));
 
   if (userError) {
@@ -172,9 +184,35 @@ async function processActiveMatches() {
     handleMap[u.id] = u.handle;
   });
 
+  // 3.5 Finalize abandoned matches
+  for (const match of matches) {
+    if (match.disconnected_at && (Date.now() > new Date(match.disconnected_at).getTime() + 30000)) {
+      const p1 = users.find(u => u.id === match.player_1_id);
+      const p2 = users.find(u => u.id === match.player_2_id);
+      let winnerId = null;
+      
+      // The player who didn't leave (not VERIFIED) wins
+      if (p1 && p1.status === 'VERIFIED' && p2 && p2.status !== 'VERIFIED') winnerId = p2.id;
+      else if (p2 && p2.status === 'VERIFIED' && p1 && p1.status !== 'VERIFIED') winnerId = p1.id;
+      else winnerId = match.player_1_score > match.player_2_score ? match.player_1_id : match.player_2_id; // Tiebreaker
+      
+      await supabase
+        .from('matches')
+        .update({ status: 'ABANDONED', winner_id: winnerId })
+        .eq('id', match.id);
+        
+      await freePlayers(match.player_1_id, match.player_2_id);
+      
+      const updatedMatch = { ...match, status: 'ABANDONED', winner_id: winnerId };
+      broadcastMatchUpdate(match.id, updatedMatch).catch(e => console.error(e));
+      continue;
+    }
+    activeMatchesToProcess.push(match);
+  }
+
   // 4. Build sequential task queue
   const tasks = [];
-  matches.forEach((match) => {
+  activeMatchesToProcess.forEach((match) => {
     if (match.player_1_id && handleMap[match.player_1_id]) {
       tasks.push({
         match,

@@ -20,6 +20,19 @@ router.post('/verify-handle', async (req, res) => {
   const normalizedHandle = handle.toLowerCase();
 
   try {
+    // Short-circuit if user is already verified
+    if (userId) {
+      const { data: existingUser, error: checkError } = await supabase
+        .from('users')
+        .select('status')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!checkError && existingUser && existingUser.status === 'VERIFIED') {
+        return res.status(200).json({ success: true, message: 'Profile verified and updated successfully.' });
+      }
+    }
+
     // 1. Initial Request: Generate and return a unique token
     if (!check) {
       let token = verificationTokens.get(normalizedHandle);
@@ -58,30 +71,37 @@ router.post('/verify-handle', async (req, res) => {
       // SUCCESS: Token matches!
       const rating = userProfile.rating || 0;
       
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is required for verification.' });
+      }
+
       const payload = {
-        handle: userProfile.handle,
         name,
         college,
         grad_year: gradYear,
+        handle: userProfile.handle,
         rating,
-        status: 'free',
-        email: req.user?.email || `${handle.toLowerCase()}@simulation.local`
+        status: 'VERIFIED'
       };
 
-      // Since users table in this project typically tracks by user 'id' (UUID),
-      // we inject it if it is provided by the frontend.
-      if (userId) {
-        payload.id = userId;
-      }
-
-      // Upsert the user's permanent record in the Supabase 'users' table
-      const { error: dbError } = await supabase
+      // Update the user's permanent record in the Supabase 'users' table targeting their authenticated ID
+      const { data: dbData, error: dbError } = await supabase
         .from('users')
-        .upsert(payload, { onConflict: userId ? 'id' : 'handle' });
+        .update(payload)
+        .eq('id', userId)
+        .select();
+
+      console.log("Database update payload:", { handle: userProfile.handle, name, college, status: 'VERIFIED' });
+      console.log("Database update result:", dbData);
 
       if (dbError) {
-        console.error('Supabase update error:', dbError);
+        console.error('[ONBOARDING DB UPDATE ERROR]:', dbError.message);
         return res.status(500).json({ error: `Failed to update user in database: ${dbError.message}` });
+      }
+
+      if (!dbData || dbData.length === 0) {
+        console.warn(`[ONBOARDING DB UPDATE FAILED] No rows updated for userId: ${userId}`);
+        return res.status(400).json({ error: 'User profile not found in database. Please ensure signup trigger completed.' });
       }
 
       // Clear the token state
@@ -104,6 +124,28 @@ router.post('/verify-handle', async (req, res) => {
     }
     
     return res.status(500).json({ error: 'Internal server error during verification process.' });
+  }
+});
+
+// GET /:userId
+router.get('/:userId', async (req, res) => {
+  const { userId } = req.params;
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`Database error looking up user ${userId}:`, error.message);
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(200).json(user);
+  } catch (error) {
+    console.error(`Error in GET /profile/${userId}:`, error.message);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 });
 

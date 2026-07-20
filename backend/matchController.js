@@ -1,18 +1,9 @@
 import supabase from './db.js';
 import { fetchProblemsByRating } from './codeforces.js';
 
-// Pre-defined Mock Profiles for dynamic seeding
-const MOCK_PROFILES = {
-  '11111111-1111-1111-1111-111111111111': { handle: 'tourist', rating: 3500 },
-  '22222222-2222-2222-2222-222222222222': { handle: 'Benq', rating: 3400 },
-  '33333333-3333-3333-3333-333333333333': { handle: 'ecnerwala', rating: 3350 },
-  '44444444-4444-4444-4444-444444444444': { handle: 'neal', rating: 2800 },
-  '55555555-5555-5555-5555-555555555555': { handle: 'lockout_newbie', rating: 1100 }
-};
-
 /**
  * Ensures a user profile exists in Supabase.
- * If not, inserts a default simulated profile.
+ * If not, throws an error.
  */
 async function ensureUserProfile(userId) {
   const { data: user, error } = await supabase
@@ -25,34 +16,15 @@ async function ensureUserProfile(userId) {
     throw new Error(`Failed to query user profile: ${error.message}`);
   }
 
-  if (user) {
-    return user;
+  if (!user) {
+    throw new Error(`Profile not found for user ${userId}. Please complete onboarding.`);
   }
 
-  // Seeding simulated profile dynamically
-  const mockData = MOCK_PROFILES[userId] || { 
-    handle: `User_${userId.slice(0, 8)}`, 
-    rating: 1000 
-  };
-
-  const { data: newUser, error: insertError } = await supabase
-    .from('users')
-    .insert({
-      id: userId,
-      email: `${mockData.handle.toLowerCase()}@example.com`,
-      handle: mockData.handle,
-      rating: mockData.rating,
-      status: 'free',
-      created_at: new Date().toISOString()
-    })
-    .select()
-    .single();
-
-  if (insertError) {
-    throw new Error(`Failed to initialize simulated user profile: ${insertError.message}`);
+  if (!user.handle) {
+    throw new Error(`User ${userId} has not set a Codeforces handle. Please complete onboarding.`);
   }
 
-  return newUser;
+  return user;
 }
 
 /**
@@ -72,9 +44,8 @@ export async function createMatch(player1Id, minRating, maxRating) {
       throw new Error('Player is currently busy and cannot create a new match.');
     }
 
-    // b. Call fetchProblemsByRating(minRating, maxRating, 5) to fetch the problem set
-    const problemSet = await fetchProblemsByRating(minRating, maxRating, 5);
-
+    // b. Codeforces fetch deferred to startMatch
+    
     // c. Generate a unique 4-digit numeric room code string (e.g., '4022')
     let roomCode = '';
     let isUnique = false;
@@ -86,7 +57,7 @@ export async function createMatch(player1Id, minRating, maxRating) {
         .from('matches')
         .select('id')
         .eq('room_code', roomCode)
-        .in('status', ['waiting', 'active'])
+        .in('status', ['waiting', 'active', 'PENDING'])
         .maybeSingle();
 
       if (!matchCheckError && !existingMatch) {
@@ -104,7 +75,9 @@ export async function createMatch(player1Id, minRating, maxRating) {
       .from('matches')
       .insert({
         room_code: roomCode,
-        problems: problemSet,
+        problems: [],
+        min_rating: minRating,
+        max_rating: maxRating,
         player_1_id: player1Id,
         status: 'waiting',
         mode: 'Mode A',
@@ -157,7 +130,7 @@ export async function joinMatch(player2Id, roomCode) {
       .from('matches')
       .select('*')
       .eq('room_code', roomCode)
-      .eq('status', 'waiting')
+      .in('status', ['waiting', 'PENDING'])
       .maybeSingle();
 
     if (matchError) {
@@ -166,6 +139,12 @@ export async function joinMatch(player2Id, roomCode) {
 
     if (!match) {
       throw new Error('Match not found or already started');
+    }
+    
+    if (match.player_1_id && match.player_2_id) {
+      const err = new Error('Arena is full');
+      err.status = 409;
+      throw err;
     }
 
     // c. Verify that Player 2's ID is NOT the same as 'player_1_id'
@@ -178,7 +157,7 @@ export async function joinMatch(player2Id, roomCode) {
       .from('matches')
       .update({
         player_2_id: player2Id,
-        status: 'active',
+        status: 'PENDING'
       })
       .eq('id', match.id)
       .select()
@@ -218,6 +197,57 @@ export async function joinMatch(player2Id, roomCode) {
 }
 
 /**
+ * Starts a pending match (Host only).
+ */
+export async function startMatch(matchId, hostId) {
+  try {
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('id', matchId)
+      .maybeSingle();
+      
+    if (matchError || !match) {
+      throw new Error('Match not found');
+    }
+    
+    if (match.player_1_id !== hostId) {
+      throw new Error('Only the room host can start the match');
+    }
+    
+    if (match.status !== 'PENDING') {
+      throw new Error('Match is not in PENDING state');
+    }
+    
+    // Fetch problems from Codeforces
+    const problemSet = await fetchProblemsByRating(match.min_rating || 1000, match.max_rating || 3000, 5);
+    
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    
+    const { data: updatedMatch, error: updateError } = await supabase
+      .from('matches')
+      .update({
+        status: 'active',
+        problems: problemSet,
+        expires_at: expiresAt
+      })
+      .eq('id', matchId)
+      .select()
+      .single();
+      
+    if (updateError) {
+      throw new Error(`Failed to start match: ${updateError.message}`);
+    }
+    
+    broadcastMatchUpdate(updatedMatch.id, updatedMatch);
+    return updatedMatch;
+  } catch (error) {
+    console.error('Error in startMatch:', error.message);
+    throw error;
+  }
+}
+
+/**
  * Broadcasts match updates over a Supabase Realtime channel.
  * 
  * @param {string} matchId 
@@ -232,7 +262,8 @@ export function broadcastMatchUpdate(matchId, matchData) {
       type: 'broadcast',
       event: 'match_update',
       payload: matchData,
-    });
+    })
+    .catch(err => console.error('[BROADCAST ERROR] Failed to send update:', err));
 }
 
 /**
@@ -257,12 +288,12 @@ export async function leaveMatch(playerId, matchId) {
     }
 
     if (!match) {
-      // If no match found, just make sure the player is set to 'free'
+      // If no match found, just make sure the player is set to 'VERIFIED'
       await supabase
         .from('users')
-        .update({ status: 'free' })
+        .update({ status: 'VERIFIED' })
         .eq('id', playerId);
-      return { status: 'cleaned', message: 'Player status reset to free.' };
+      return { status: 'cleaned', message: 'Player status reset to verified.' };
     }
 
     // 2. Determine leaving behavior based on match status
@@ -276,48 +307,40 @@ export async function leaveMatch(playerId, matchId) {
 
       await supabase
         .from('users')
-        .update({ status: 'free' })
+        .update({ status: 'VERIFIED' })
         .eq('id', match.player_1_id);
 
-      return { status: 'finished', message: 'Match cancelled, player freed.' };
+      return { status: 'finished', message: 'Match cancelled, player verified.' };
     }
 
     if (match.status === 'active') {
-      // Match was active. This is a forfeit.
-      // Determine the winner (the other player)
-      const winnerId = match.player_1_id === playerId ? match.player_2_id : match.player_1_id;
+      // Match was active. Player explicitly left or dropped.
+      // Phase 6: Write disconnected_at directly to the DB instead of a memory leak timeout
+      console.log(`[LIFECYCLE] Player ${playerId} left active match. Marking disconnected_at for room ${matchId}...`);
+      
+      const disconnectedAt = new Date().toISOString();
 
-      // Update match: status finished, winner_id set
-      const { data: updatedMatch, error: updateMatchError } = await supabase
-        .from('matches')
-        .update({
-          status: 'finished',
-          winner_id: winnerId
-        })
-        .eq('id', matchId)
-        .select()
-        .single();
-
-      if (updateMatchError) {
-        throw new Error(`Failed to update match on forfeit: ${updateMatchError.message}`);
-      }
-
-      // Free both players
+      // Free the leaving player immediately so they can return to the dashboard
       await supabase
         .from('users')
-        .update({ status: 'free' })
-        .in('id', [match.player_1_id, match.player_2_id]);
+        .update({ status: 'VERIFIED' })
+        .eq('id', playerId);
 
-      // Broadcast update
-      broadcastMatchUpdate(matchId, updatedMatch);
+      // Flag the match with the timestamp
+      await supabase
+        .from('matches')
+        .update({
+          disconnected_at: disconnectedAt
+        })
+        .eq('id', matchId);
 
-      return updatedMatch;
+      return { status: 'grace_period', message: 'Grace timer logged in database.' };
     }
 
     // If match was already finished, just free the leaving player
     await supabase
       .from('users')
-      .update({ status: 'free' })
+      .update({ status: 'VERIFIED' })
       .eq('id', playerId);
 
     return match;
