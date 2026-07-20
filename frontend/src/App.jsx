@@ -13,7 +13,15 @@ const MOCK_USERS = [
 ];
 
 function App() {
-  const [currentUser, setCurrentUser] = useState(MOCK_USERS[0]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthInitializing, setIsAuthInitializing] = useState(true);
+
+  // Auth View State
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   const [minRating, setMinRating] = useState(1500);
   const [maxRating, setMaxRating] = useState(2000);
   const [roomCodeInput, setRoomCodeInput] = useState('');
@@ -38,21 +46,25 @@ function App() {
           const { data: profile } = await supabase
             .from('users')
             .select('*')
-            .eq('id', session.user.id)
+            .eq('id', session?.user?.id)
             .maybeSingle();
           
           if (profile) {
             setCurrentUser(profile);
           } else {
             setCurrentUser({
-              id: session.user.id,
+              id: session?.user?.id,
               handle: '',
               rating: 1000
             });
           }
+        } else {
+          setCurrentUser(null);
         }
       } catch (err) {
         console.error('Failed to retrieve auth session:', err);
+      } finally {
+        setIsAuthInitializing(false);
       }
     };
 
@@ -63,21 +75,20 @@ function App() {
         const { data: profile } = await supabase
           .from('users')
           .select('*')
-          .eq('id', session.user.id)
+          .eq('id', session?.user?.id)
           .maybeSingle();
         
         if (profile) {
           setCurrentUser(profile);
         } else {
           setCurrentUser({
-            id: session.user.id,
+            id: session?.user?.id,
             handle: '',
             rating: 1000
           });
         }
       } else {
-        // Fall back to local tourist for simulation only when there's no auth session
-        setCurrentUser(MOCK_USERS[0]);
+        setCurrentUser(null);
       }
     });
 
@@ -86,11 +97,38 @@ function App() {
     };
   }, []);
 
+  const handleOAuthLogin = async () => {
+    setAuthError('');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google' });
+    if (error) setAuthError(error.message);
+    setAuthLoading(false);
+  };
+
+  const handleEmailLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword });
+    if (error) setAuthError(error.message);
+    setAuthLoading(false);
+  };
+
+  const handleEmailSignup = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setAuthLoading(true);
+    const { error } = await supabase.auth.signUp({ email: authEmail, password: authPassword });
+    if (error) setAuthError(error.message);
+    else setAuthError('SUCCESS: Check your email for a confirmation link.');
+    setAuthLoading(false);
+  };
+
   useEffect(() => {
     if (currentUser) {
-      if (!currentUser.name || !currentUser.college || !currentUser.gradYear) {
+      if (!currentUser?.name || !currentUser?.college || !currentUser?.gradYear) {
         setShowOnboarding(true);
-        setOnboardingForm(prev => ({ ...prev, handle: currentUser.handle || '' }));
+        setOnboardingForm(prev => ({ ...prev, handle: currentUser?.handle || '' }));
         setOnboardingStep(1);
         setOnboardingToken('');
         setOnboardingError('');
@@ -119,7 +157,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser.id,
+          userId: currentUser?.id,
           handle: onboardingForm.handle,
           name: onboardingForm.name,
           college: onboardingForm.college,
@@ -148,7 +186,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: currentUser.id,
+          userId: currentUser?.id,
           handle: onboardingForm.handle,
           name: onboardingForm.name,
           college: onboardingForm.college,
@@ -195,10 +233,10 @@ function App() {
       setLoading(true);
       setError('');
       try {
-        console.log(`[SESSION] Running recovery check for user: ${currentUser.handle}`);
+        console.log(`[SESSION] Running recovery check for user: ${currentUser?.handle}`);
         
         // Fetch via Express API endpoint to ensure server-side auth is utilized
-        const recoveredMatch = await getActiveMatch(currentUser.id);
+        const recoveredMatch = await getActiveMatch(currentUser?.id);
 
         if (recoveredMatch) {
           console.log('[SESSION] Recovered active match:', recoveredMatch);
@@ -215,16 +253,16 @@ function App() {
     };
 
     restoreSession();
-  }, [currentUser.id]);
+  }, [currentUser?.id]);
 
   // Poll backend API for match state updates when in an active match
   useEffect(() => {
     if (!activeMatch) return;
 
-    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for user: ${currentUser.id}`);
+    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for user: ${currentUser?.id}`);
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://localhost:5000/api/matches/active/${currentUser.id}`);
+        const res = await fetch(`http://localhost:5000/api/matches/active/${currentUser?.id}`);
         const data = await res.json();
         if (data.activeMatch) {
           setActiveMatch(data.activeMatch);
@@ -238,13 +276,13 @@ function App() {
       console.log(`[POLLING] Clearing 1.5-second HTTP sync loop.`);
       clearInterval(interval);
     };
-  }, [activeMatch?.id, currentUser.id]);
+  }, [activeMatch?.id, currentUser?.id]);
 
   const handleCreateMatch = async () => {
     setLoading(true);
     setError('');
     try {
-      const match = await createMatch(currentUser.id, minRating, maxRating);
+      const match = await createMatch(currentUser?.id, minRating, maxRating);
       setActiveMatch(match);
     } catch (err) {
       setError(err.message || 'Failed to create match.');
@@ -261,7 +299,7 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const match = await joinMatch(currentUser.id, roomCodeInput);
+      const match = await joinMatch(currentUser?.id, roomCodeInput);
       setActiveMatch(match);
     } catch (err) {
       setError(err.message || 'Failed to join match.');
@@ -288,7 +326,7 @@ function App() {
     if (activeMatch) {
       setLoading(true);
       try {
-        await leaveMatch(currentUser.id, activeMatch.id);
+        await leaveMatch(currentUser?.id, activeMatch.id);
       } catch (err) {
         console.warn('Failed to notify backend of exit:', err.message);
       } finally {
@@ -310,14 +348,86 @@ function App() {
         {currentUser && (
           <div className="flex items-center space-x-2">
             <span className="text-xs text-slate-400 font-mono">LOGGED IN AS:</span>
-            <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser.handle || 'NEWBIE'}</span>
+            <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser?.handle || 'NEWBIE'}</span>
           </div>
         )}
       </header>
 
       {/* Main body */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-6 flex flex-col justify-start">
-        {showOnboarding ? (
+        {isAuthInitializing ? (
+          <div className="flex-1 flex flex-col items-center justify-center font-mono text-[#06B6D4] animate-pulse tracking-widest text-lg">
+            INITIALIZING SECURE LINK...
+          </div>
+        ) : !currentUser ? (
+          /* AUTHENTICATION VIEW */
+          <div className="flex-1 flex flex-col items-center justify-center my-auto">
+            <div className="w-full max-w-md bg-[#18181B] border border-[#27272A] p-8 shadow-2xl">
+              <h2 className="text-xl font-bold font-mono border-b border-[#27272A] pb-4 mb-6 flex items-center space-x-3">
+                <span className="h-3 w-3 bg-[#06B6D4]"></span>
+                <span>SYSTEM AUTHENTICATION</span>
+              </h2>
+              
+              {authError && (
+                <div className={`border p-3 mb-6 rounded-none font-mono text-sm ${authError.startsWith('SUCCESS') ? 'bg-green-950/30 border-[#10B981] text-[#10B981]' : 'bg-red-950/30 border-[#EF4444] text-[#EF4444]'}`}>
+                  {authError}
+                </div>
+              )}
+
+              <button
+                onClick={handleOAuthLogin}
+                disabled={authLoading}
+                className="w-full bg-[#09090B] border border-[#27272A] hover:bg-[#27272A] text-slate-100 py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 mb-6 flex justify-center items-center space-x-2"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24"><path fill="currentColor" d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"/></svg>
+                <span>SIGN IN WITH GOOGLE</span>
+              </button>
+
+              <div className="relative flex py-5 items-center">
+                <div className="flex-grow border-t border-[#27272A]"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-500 text-xs font-mono">OR</span>
+                <div className="flex-grow border-t border-[#27272A]"></div>
+              </div>
+
+              <form className="space-y-4">
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">EMAIL ADDRESS</label>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(e) => setAuthEmail(e.target.value)}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-xs text-slate-400 font-mono mb-2">PASSWORD</label>
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4 pt-4">
+                  <button
+                    onClick={handleEmailLogin}
+                    disabled={authLoading}
+                    className="w-full bg-[#18181B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
+                  >
+                    SIGN IN
+                  </button>
+                  <button
+                    onClick={handleEmailSignup}
+                    disabled={authLoading}
+                    className="w-full bg-[#18181B] border border-[#27272A] hover:bg-[#27272A] text-slate-300 py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
+                  >
+                    SIGN UP
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        ) : showOnboarding ? (
           /* ONBOARDING OVERLAY */
           <div className="flex-1 flex flex-col items-center justify-center my-auto">
             <div className="w-full max-w-lg bg-[#18181B] border border-[#27272A] p-8 shadow-2xl">
@@ -597,7 +707,7 @@ function App() {
               <div className="space-y-6">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
                   const isLocked = problem.locked === true;
-                  const isCurrentUserLock = isLocked && problem.locked_by === currentUser.id;
+                  const isCurrentUserLock = isLocked && problem.locked_by === currentUser?.id;
                   const solverProfile = isLocked ? getPlayerProfile(problem.locked_by) : null;
                   const solverHandle = solverProfile ? solverProfile.handle : '';
 
