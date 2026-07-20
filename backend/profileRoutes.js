@@ -64,7 +64,8 @@ router.post('/verify-handle', async (req, res) => {
         college,
         grad_year: gradYear,
         rating,
-        status: 'free'
+        status: 'free',
+        email: req.user?.email || `${handle.toLowerCase()}@simulation.local`
       };
 
       // Since users table in this project typically tracks by user 'id' (UUID),

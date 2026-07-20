@@ -29,11 +29,68 @@ function App() {
   const [onboardingLoading, setOnboardingLoading] = useState(false);
   const [onboardingError, setOnboardingError] = useState('');
 
+  // Track active Supabase database session state dynamically
+  useEffect(() => {
+    const checkUserSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .maybeSingle();
+          
+          if (profile) {
+            setCurrentUser(profile);
+          } else {
+            setCurrentUser({
+              id: session.user.id,
+              handle: '',
+              rating: 1000
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Failed to retrieve auth session:', err);
+      }
+    };
+
+    checkUserSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const { data: profile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        
+        if (profile) {
+          setCurrentUser(profile);
+        } else {
+          setCurrentUser({
+            id: session.user.id,
+            handle: '',
+            rating: 1000
+          });
+        }
+      } else {
+        // Fall back to local tourist for simulation only when there's no auth session
+        setCurrentUser(MOCK_USERS[0]);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
   useEffect(() => {
     if (currentUser) {
       if (!currentUser.name || !currentUser.college || !currentUser.gradYear) {
         setShowOnboarding(true);
-        setOnboardingForm(prev => ({ ...prev, handle: currentUser.handle }));
+        setOnboardingForm(prev => ({ ...prev, handle: currentUser.handle || '' }));
         setOnboardingStep(1);
         setOnboardingToken('');
         setOnboardingError('');
@@ -250,24 +307,12 @@ function App() {
           <span className="h-3 w-3 bg-[#06B6D4] animate-pulse"></span>
           <h1 className="text-xl font-bold tracking-wider font-mono">LOCKOUT.IO</h1>
         </div>
-        <div className="flex items-center space-x-4">
-          <label className="text-xs text-slate-400 font-mono">USER SIMULATION:</label>
-          <select
-            className="bg-[#18181B] border border-[#27272A] text-sm text-slate-200 py-1.5 px-3 rounded-none focus:outline-none focus:border-[#06B6D4] font-mono"
-            value={currentUser.id}
-            onChange={(e) => {
-              const selected = MOCK_USERS.find(u => u.id === e.target.value);
-              if (selected) setCurrentUser(selected);
-            }}
-            disabled={!!activeMatch}
-          >
-            {MOCK_USERS.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.handle} ({user.rating})
-              </option>
-            ))}
-          </select>
-        </div>
+        {currentUser && (
+          <div className="flex items-center space-x-2">
+            <span className="text-xs text-slate-400 font-mono">LOGGED IN AS:</span>
+            <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser.handle || 'NEWBIE'}</span>
+          </div>
+        )}
       </header>
 
       {/* Main body */}
