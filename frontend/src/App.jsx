@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getDeveloperTier } from './theme.js';
-import { createMatch, joinMatch, getMatch } from './api.js';
+import { createMatch, joinMatch, getMatch, leaveMatch } from './api.js';
 import { supabase } from './db.js';
 
 // Pre-defined Mock Users for development testing
@@ -53,6 +53,30 @@ function App() {
     };
   }, [activeMatch?.id]);
 
+  // Automated background polling check every 8 seconds (8000ms) to sync match status
+  useEffect(() => {
+    if (!activeMatch) return;
+    
+    const status = activeMatch.status ? activeMatch.status.toUpperCase() : '';
+    if (status !== 'WAITING' && status !== 'ACTIVE') return;
+
+    console.log('[POLLING] Starting 8000ms status polling loop...');
+    const interval = setInterval(async () => {
+      try {
+        console.log('[POLLING] Syncing match status...');
+        const freshMatch = await getMatch(activeMatch.id);
+        setActiveMatch(freshMatch);
+      } catch (err) {
+        console.warn('[POLLING] Failed to sync match status:', err.message);
+      }
+    }, 8000);
+
+    return () => {
+      console.log('[POLLING] Clearing status polling loop...');
+      clearInterval(interval);
+    };
+  }, [activeMatch?.id, activeMatch?.status]);
+
   const handleCreateMatch = async () => {
     setLoading(true);
     setError('');
@@ -97,7 +121,17 @@ function App() {
     }
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = async () => {
+    if (activeMatch) {
+      setLoading(true);
+      try {
+        await leaveMatch(currentUser.id, activeMatch.id);
+      } catch (err) {
+        console.warn('Failed to notify backend of exit:', err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
     setActiveMatch(null);
     setError('');
   };

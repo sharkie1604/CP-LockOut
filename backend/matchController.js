@@ -1,6 +1,60 @@
 import supabase from './db.js';
 import { fetchProblemsByRating } from './codeforces.js';
 
+// Pre-defined Mock Profiles for dynamic seeding
+const MOCK_PROFILES = {
+  '11111111-1111-1111-1111-111111111111': { handle: 'tourist', rating: 3500 },
+  '22222222-2222-2222-2222-222222222222': { handle: 'Benq', rating: 3400 },
+  '33333333-3333-3333-3333-333333333333': { handle: 'ecnerwala', rating: 3350 },
+  '44444444-4444-4444-4444-444444444444': { handle: 'neal', rating: 2800 },
+  '55555555-5555-5555-5555-555555555555': { handle: 'lockout_newbie', rating: 1100 }
+};
+
+/**
+ * Ensures a user profile exists in Supabase.
+ * If not, inserts a default simulated profile.
+ */
+async function ensureUserProfile(userId) {
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('id, status, rating, handle')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to query user profile: ${error.message}`);
+  }
+
+  if (user) {
+    return user;
+  }
+
+  // Seeding simulated profile dynamically
+  const mockData = MOCK_PROFILES[userId] || { 
+    handle: `User_${userId.slice(0, 8)}`, 
+    rating: 1000 
+  };
+
+  const { data: newUser, error: insertError } = await supabase
+    .from('users')
+    .insert({
+      id: userId,
+      email: `${mockData.handle.toLowerCase()}@example.com`,
+      handle: mockData.handle,
+      rating: mockData.rating,
+      status: 'free',
+      created_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    throw new Error(`Failed to initialize simulated user profile: ${insertError.message}`);
+  }
+
+  return newUser;
+}
+
 /**
  * Creates a new lockout match.
  * 
@@ -12,17 +66,9 @@ import { fetchProblemsByRating } from './codeforces.js';
 export async function createMatch(player1Id, minRating, maxRating) {
   try {
     // a. Check if the player is already flagged as busy in the system memory/state (per strict concurrency rule)
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('status')
-      .eq('id', player1Id)
-      .single();
+    const user = await ensureUserProfile(player1Id);
 
-    if (userError) {
-      throw new Error(`Failed to fetch user status: ${userError.message}`);
-    }
-
-    if (user && user.status === 'busy') {
+    if (user.status === 'busy') {
       throw new Error('Player is currently busy and cannot create a new match.');
     }
 
@@ -99,17 +145,9 @@ export async function createMatch(player1Id, minRating, maxRating) {
 export async function joinMatch(player2Id, roomCode) {
   try {
     // a. Check if Player 2 is already marked as 'busy' in the 'users' table
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('status')
-      .eq('id', player2Id)
-      .single();
+    const user = await ensureUserProfile(player2Id);
 
-    if (userError) {
-      throw new Error(`Failed to fetch player status: ${userError.message}`);
-    }
-
-    if (user && user.status === 'busy') {
+    if (user.status === 'busy') {
       throw new Error('Player is currently busy and cannot join a match.');
     }
 
@@ -194,6 +232,98 @@ export function broadcastMatchUpdate(matchId, matchData) {
       event: 'match_update',
       payload: matchData,
     });
+}
+
+/**
+ * Leaves or forfeits a match.
+ * Resets the player status in the database and cleans up match state.
+ * 
+ * @param {string} playerId - The ID of the player leaving.
+ * @param {string} matchId - The ID of the match.
+ * @returns {Promise<Object>} The updated match dataset or cleanup confirmation.
+ */
+export async function leaveMatch(playerId, matchId) {
+  try {
+    // 1. Fetch the match data safely
+    const { data: match, error: matchError } = await supabase
+      .from('matches')
+      .select('*')
+      .eq('id', matchId)
+      .maybeSingle();
+
+    if (matchError) {
+      throw new Error(`Database error looking up match: ${matchError.message}`);
+    }
+
+    if (!match) {
+      // If no match found, just make sure the player is set to 'free'
+      await supabase
+        .from('users')
+        .update({ status: 'free' })
+        .eq('id', playerId);
+      return { status: 'cleaned', message: 'Player status reset to free.' };
+    }
+
+    // 2. Determine leaving behavior based on match status
+    if (match.status === 'waiting') {
+      // Match was waiting for a second player. Creator is leaving.
+      // Cancel the match and free player 1.
+      await supabase
+        .from('matches')
+        .update({ status: 'finished' })
+        .eq('id', matchId);
+
+      await supabase
+        .from('users')
+        .update({ status: 'free' })
+        .eq('id', match.player_1_id);
+
+      return { status: 'finished', message: 'Match cancelled, player freed.' };
+    }
+
+    if (match.status === 'active') {
+      // Match was active. This is a forfeit.
+      // Determine the winner (the other player)
+      const winnerId = match.player_1_id === playerId ? match.player_2_id : match.player_1_id;
+
+      // Update match: status finished, winner_id set
+      const { data: updatedMatch, error: updateMatchError } = await supabase
+        .from('matches')
+        .update({
+          status: 'finished',
+          winner_id: winnerId
+        })
+        .eq('id', matchId)
+        .select()
+        .single();
+
+      if (updateMatchError) {
+        throw new Error(`Failed to update match on forfeit: ${updateMatchError.message}`);
+      }
+
+      // Free both players
+      await supabase
+        .from('users')
+        .update({ status: 'free' })
+        .in('id', [match.player_1_id, match.player_2_id]);
+
+      // Broadcast update
+      broadcastMatchUpdate(matchId, updatedMatch);
+
+      return updatedMatch;
+    }
+
+    // If match was already finished, just free the leaving player
+    await supabase
+      .from('users')
+      .update({ status: 'free' })
+      .eq('id', playerId);
+
+    return match;
+  } catch (error) {
+    console.error('Error in leaveMatch:', error.message);
+    throw error;
+  }
 }
 
 

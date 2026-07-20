@@ -1,6 +1,6 @@
 import express from 'express';
 import supabase from './db.js';
-import { createMatch, joinMatch } from './matchController.js';
+import { createMatch, joinMatch, leaveMatch } from './matchController.js';
 
 const router = express.Router();
 
@@ -58,6 +58,23 @@ router.get('/:id', async (req, res) => {
 
     return res.status(200).json(match);
   } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /leave
+router.post('/leave', async (req, res) => {
+  const { playerId, matchId } = req.body;
+
+  if (!playerId || !matchId) {
+    return res.status(400).json({ error: 'Missing required parameters: playerId, matchId' });
+  }
+
+  try {
+    const result = await leaveMatch(playerId, matchId);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in /leave route:', error.message);
     return res.status(500).json({ error: error.message });
   }
 });

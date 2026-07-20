@@ -63,3 +63,27 @@ export async function getMatch(matchId) {
   }
   return response.json();
 }
+
+/**
+ * Leaves or forfeits a lockout match.
+ * 
+ * @param {string} playerId 
+ * @param {string} matchId 
+ * @returns {Promise<Object>} The updated match or status result.
+ */
+export async function leaveMatch(playerId, matchId) {
+  const response = await fetch(`${API_BASE_URL}/api/matches/leave`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ playerId, matchId }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to leave match');
+  }
+
+  return response.json();
+}
