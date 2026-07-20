@@ -21,6 +21,103 @@ function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Phase 5: Onboarding State
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingForm, setOnboardingForm] = useState({ name: '', college: '', gradYear: '', handle: '' });
+  const [onboardingToken, setOnboardingToken] = useState('');
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
+
+  useEffect(() => {
+    if (currentUser) {
+      if (!currentUser.name || !currentUser.college || !currentUser.gradYear) {
+        setShowOnboarding(true);
+        setOnboardingForm(prev => ({ ...prev, handle: currentUser.handle }));
+        setOnboardingStep(1);
+        setOnboardingToken('');
+        setOnboardingError('');
+      } else {
+        setShowOnboarding(false);
+      }
+    }
+  }, [currentUser]);
+
+  const handleGenerateToken = async (e) => {
+    e.preventDefault();
+    setOnboardingError('');
+    if (!onboardingForm.name || !onboardingForm.college || !onboardingForm.gradYear || !onboardingForm.handle) {
+      setOnboardingError('All fields are required.');
+      return;
+    }
+    
+    if (!/^\d{4}$/.test(onboardingForm.gradYear)) {
+      setOnboardingError('Graduation year must be a 4-digit number.');
+      return;
+    }
+
+    setOnboardingLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/profile/verify-handle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          handle: onboardingForm.handle,
+          name: onboardingForm.name,
+          college: onboardingForm.college,
+          gradYear: onboardingForm.gradYear,
+          check: false
+        })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Failed to generate token.');
+      
+      setOnboardingToken(data.token);
+      setOnboardingStep(2);
+    } catch (err) {
+      setOnboardingError(err.message);
+    } finally {
+      setOnboardingLoading(false);
+    }
+  };
+
+  const handleVerifySetup = async () => {
+    setOnboardingError('');
+    setOnboardingLoading(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/profile/verify-handle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          handle: onboardingForm.handle,
+          name: onboardingForm.name,
+          college: onboardingForm.college,
+          gradYear: onboardingForm.gradYear,
+          check: true
+        })
+      });
+      const data = await res.json();
+      
+      if (!res.ok) throw new Error(data.error || 'Verification failed.');
+      
+      setCurrentUser(prev => ({
+        ...prev,
+        handle: onboardingForm.handle,
+        name: onboardingForm.name,
+        college: onboardingForm.college,
+        gradYear: onboardingForm.gradYear
+      }));
+      setShowOnboarding(false);
+    } catch (err) {
+      setOnboardingError(err.message);
+    } finally {
+      setOnboardingLoading(false);
+    }
+  };
+
   const getPlayerProfile = (id) => {
     if (!id) return null;
     const user = MOCK_USERS.find((u) => u.id === id);
@@ -175,15 +272,111 @@ function App() {
 
       {/* Main body */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-6 flex flex-col justify-start">
-        {error && (
-          <div className="bg-[#18181B] border border-red-500/50 text-red-500 p-4 mb-6 rounded-none flex justify-between items-center font-mono text-sm">
-            <span>ERROR: {error}</span>
-            <button onClick={() => setError('')} className="hover:text-white">✕</button>
-          </div>
-        )}
+        {showOnboarding ? (
+          /* ONBOARDING OVERLAY */
+          <div className="flex-1 flex flex-col items-center justify-center my-auto">
+            <div className="w-full max-w-lg bg-[#18181B] border border-[#27272A] p-8 shadow-2xl">
+              <h2 className="text-xl font-bold font-mono border-b border-[#27272A] pb-4 mb-6 flex items-center space-x-3">
+                <span className="h-3 w-3 bg-[#06B6D4] animate-pulse"></span>
+                <span>PROFILE ONBOARDING</span>
+              </h2>
+              
+              {onboardingError && (
+                <div className="bg-red-950/30 border border-[#EF4444] text-[#EF4444] p-3 mb-6 rounded-none font-mono text-sm">
+                  {onboardingError}
+                </div>
+              )}
 
-        {!activeMatch ? (
-          /* LOBBY DASHBOARD */
+              {onboardingStep === 1 ? (
+                <form onSubmit={handleGenerateToken} className="space-y-5">
+                  <div className="flex flex-col">
+                    <label className="text-xs text-slate-400 font-mono mb-2">FULL NAME</label>
+                    <input
+                      type="text"
+                      value={onboardingForm.name}
+                      onChange={(e) => setOnboardingForm({...onboardingForm, name: e.target.value})}
+                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                      placeholder="e.g. John Doe"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-slate-400 font-mono mb-2">COLLEGE NAME</label>
+                    <input
+                      type="text"
+                      value={onboardingForm.college}
+                      onChange={(e) => setOnboardingForm({...onboardingForm, college: e.target.value})}
+                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                      placeholder="e.g. MIT"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-slate-400 font-mono mb-2">GRADUATION YEAR</label>
+                    <input
+                      type="text"
+                      maxLength={4}
+                      value={onboardingForm.gradYear}
+                      onChange={(e) => setOnboardingForm({...onboardingForm, gradYear: e.target.value})}
+                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                      placeholder="e.g. 2026"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-slate-400 font-mono mb-2">CODEFORCES HANDLE</label>
+                    <input
+                      type="text"
+                      value={onboardingForm.handle}
+                      onChange={(e) => setOnboardingForm({...onboardingForm, handle: e.target.value})}
+                      className="bg-[#09090B] border border-[#27272A] text-slate-100 py-2.5 px-4 font-mono focus:outline-none focus:border-[#06B6D4]"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={onboardingLoading}
+                    className="mt-6 w-full bg-[#18181B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
+                  >
+                    {onboardingLoading ? 'PROCESSING...' : 'GENERATE TOKEN'}
+                  </button>
+                </form>
+              ) : (
+                <div className="space-y-6">
+                  <p className="text-sm text-slate-400 leading-relaxed">
+                    Please update your Codeforces Profile First or Last Name to the exact token below to verify ownership of the handle <strong className="text-white">{onboardingForm.handle}</strong>.
+                  </p>
+                  
+                  <div className="bg-[#09090B] border border-[#06B6D4] p-4 text-center">
+                    <span className="text-2xl font-black font-mono tracking-widest text-[#06B6D4]">{onboardingToken}</span>
+                  </div>
+                  
+                  <button
+                    onClick={handleVerifySetup}
+                    disabled={onboardingLoading}
+                    className="w-full bg-[#18181B] border border-[#10B981] hover:bg-[#10B981] hover:text-[#09090B] text-[#10B981] py-3 text-sm font-bold font-mono tracking-wider transition-all duration-200 disabled:opacity-50"
+                  >
+                    {onboardingLoading ? 'VERIFYING...' : 'VERIFY & COMPLETE SETUP'}
+                  </button>
+                  
+                  <button
+                    onClick={() => setOnboardingStep(1)}
+                    disabled={onboardingLoading}
+                    className="w-full border border-[#27272A] hover:bg-[#27272A] text-slate-400 py-2 text-xs font-mono tracking-wider transition-all duration-200"
+                  >
+                    GO BACK
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {error && (
+              <div className="bg-[#18181B] border border-red-500/50 text-red-500 p-4 mb-6 rounded-none flex justify-between items-center font-mono text-sm">
+                <span>ERROR: {error}</span>
+                <button onClick={() => setError('')} className="hover:text-white">✕</button>
+              </div>
+            )}
+    
+            {!activeMatch ? (
+              /* LOBBY DASHBOARD */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 my-auto">
             {/* Create Room Area */}
             <div className="bg-[#18181B] border border-[#27272A] p-8 flex flex-col justify-between">
@@ -437,6 +630,8 @@ function App() {
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
       </main>
     </div>
