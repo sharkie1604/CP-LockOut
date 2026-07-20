@@ -355,10 +355,6 @@ function App() {
 
             {/* 5-Problem Lockout Grid */}
             <div className="bg-[#09090B] border border-[#27272A] p-6">
-              <h3 className="text-sm font-bold font-mono tracking-wider border-b border-[#27272A] pb-3 mb-6 flex items-center space-x-2">
-                <span className="h-2 w-2 bg-[#06B6D4]"></span>
-                <span className="text-slate-300">CYBER-GRID HUD</span>
-              </h3>
               
               <div className="space-y-6">
                 {activeMatch.problems && activeMatch.problems.map((problem, index) => {
