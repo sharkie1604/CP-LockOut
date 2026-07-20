@@ -346,9 +346,17 @@ function App() {
           <h1 className="text-xl font-bold tracking-wider font-mono">LOCKOUT.IO</h1>
         </div>
         {currentUser && (
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-slate-400 font-mono">LOGGED IN AS:</span>
-            <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser?.handle || 'NEWBIE'}</span>
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-slate-400 font-mono">LOGGED IN AS:</span>
+              <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser?.handle || 'NEWBIE'}</span>
+            </div>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="px-3 py-1 bg-[#09090B] border border-[#27272A] hover:border-[#EF4444] text-xs font-bold font-mono text-slate-400 hover:text-[#EF4444] transition-all"
+            >
+              LOGOUT
+            </button>
           </div>
         )}
       </header>
