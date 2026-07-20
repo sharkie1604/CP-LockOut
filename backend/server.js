@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import matchRoutes from './matchRoutes.js';
+import profileRoutes from './profileRoutes.js';
 import { startMatchWorker } from './matchWorker.js';
 
 dotenv.config();
@@ -20,6 +21,7 @@ app.use(express.json());
 
 // Register API routes
 app.use('/api/matches', matchRoutes);
+app.use('/api/profile', profileRoutes);
 
 app.get('/', (req, res) => {
   res.json({ status: 'healthy' });
