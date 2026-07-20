@@ -63,49 +63,28 @@ function App() {
     restoreSession();
   }, [currentUser.id]);
 
-  // Subscribe to real-time match state updates via Supabase broadcast channel
+  // Poll backend API for match state updates when in an active match
   useEffect(() => {
     if (!activeMatch) return;
 
-    console.log(`[REALTIME] Subscribing to channel: match:${activeMatch.id}`);
-    const channel = supabase.channel(`match:${activeMatch.id}`);
-
-    channel
-      .on('broadcast', { event: 'match_update' }, ({ payload }) => {
-        console.log('[REALTIME] Received match update:', payload);
-        setActiveMatch(payload);
-      })
-      .subscribe();
-
-    return () => {
-      console.log(`[REALTIME] Unsubscribing from channel: match:${activeMatch.id}`);
-      supabase.removeChannel(channel);
-    };
-  }, [activeMatch?.id]);
-
-  // Automated background polling check every 8 seconds (8000ms) to sync match status
-  useEffect(() => {
-    if (!activeMatch) return;
-    
-    const status = activeMatch.status ? activeMatch.status.toUpperCase() : '';
-    if (status !== 'WAITING' && status !== 'ACTIVE') return;
-
-    console.log('[POLLING] Starting 8000ms status polling loop...');
+    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for user: ${currentUser.id}`);
     const interval = setInterval(async () => {
       try {
-        console.log('[POLLING] Syncing match status...');
-        const freshMatch = await getMatch(activeMatch.id);
-        setActiveMatch(freshMatch);
+        const res = await fetch(`http://localhost:5000/api/matches/active/${currentUser.id}`);
+        const data = await res.json();
+        if (data.activeMatch) {
+          setActiveMatch(data.activeMatch);
+        }
       } catch (err) {
-        console.warn('[POLLING] Failed to sync match status:', err.message);
+        console.error("Sync error:", err);
       }
-    }, 8000);
+    }, 1500);
 
     return () => {
-      console.log('[POLLING] Clearing status polling loop...');
+      console.log(`[POLLING] Clearing 1.5-second HTTP sync loop.`);
       clearInterval(interval);
     };
-  }, [activeMatch?.id, activeMatch?.status]);
+  }, [activeMatch?.id, currentUser.id]);
 
   const handleCreateMatch = async () => {
     setLoading(true);

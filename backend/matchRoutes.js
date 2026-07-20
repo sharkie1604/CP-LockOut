@@ -88,6 +88,33 @@ router.get('/active', async (req, res) => {
   }
 });
 
+// GET /active/:playerId
+router.get('/active/:playerId', async (req, res) => {
+  const { playerId } = req.params;
+
+  try {
+    // 1. Look up any active/waiting match involving this player
+    const { data: matches, error: matchError } = await supabase
+      .from('matches')
+      .select('*')
+      .or(`player_1_id.eq.${playerId},player_2_id.eq.${playerId}`)
+      .in('status', ['waiting', 'active']);
+
+    if (matchError) {
+      return res.status(500).json({ error: matchError.message });
+    }
+
+    if (matches && matches.length > 0) {
+      return res.status(200).json({ activeMatch: matches[0] });
+    }
+
+    return res.status(200).json({ activeMatch: null });
+  } catch (error) {
+    console.error('Error in /active/:playerId route:', error.message);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /:id
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
