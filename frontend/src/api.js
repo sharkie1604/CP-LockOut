@@ -87,3 +87,19 @@ export async function leaveMatch(playerId, matchId) {
 
   return response.json();
 }
+
+/**
+ * Fetches any active match involving the current user.
+ * 
+ * @param {string} playerId 
+ * @returns {Promise<Object|null>} The active match or null.
+ */
+export async function getActiveMatch(playerId) {
+  const response = await fetch(`${API_BASE_URL}/api/matches/active?playerId=${playerId}`);
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to fetch active session');
+  }
+  const data = await response.json();
+  return data.match;
+}

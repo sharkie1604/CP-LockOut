@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getDeveloperTier } from './theme.js';
-import { createMatch, joinMatch, getMatch, leaveMatch } from './api.js';
+import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch } from './api.js';
 import { supabase } from './db.js';
 
 // Pre-defined Mock Users for development testing
@@ -32,6 +32,36 @@ function App() {
   const player2Profile = activeMatch ? getPlayerProfile(activeMatch.player_2_id) : null;
   const p1Tier = player1Profile ? getDeveloperTier(player1Profile.rating) : null;
   const p2Tier = player2Profile ? getDeveloperTier(player2Profile.rating) : null;
+
+  // Session Recovery & Concurrency Cleanup Loop
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const restoreSession = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        console.log(`[SESSION] Running recovery check for user: ${currentUser.handle}`);
+        
+        // Fetch via Express API endpoint to ensure server-side auth is utilized
+        const recoveredMatch = await getActiveMatch(currentUser.id);
+
+        if (recoveredMatch) {
+          console.log('[SESSION] Recovered active match:', recoveredMatch);
+          setActiveMatch(recoveredMatch);
+        } else {
+          setActiveMatch(null);
+        }
+      } catch (err) {
+        console.error('[SESSION] Recovery workflow failed:', err.message);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    restoreSession();
+  }, [currentUser.id]);
 
   // Subscribe to real-time match state updates via Supabase broadcast channel
   useEffect(() => {
