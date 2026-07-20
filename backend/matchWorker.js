@@ -297,8 +297,8 @@ export function startMatchWorker() {
     } catch (err) {
       console.error('[WORKER] Error in execution loop:', err.message);
     }
-    // Check again in 5 seconds (non-overlapping)
-    setTimeout(run, 5000);
+    // Check again in 10 seconds (non-overlapping)
+    setTimeout(run, 10000);
   }
 
   run();

@@ -107,6 +107,7 @@ export async function createMatch(player1Id, minRating, maxRating) {
         problems: problemSet,
         player_1_id: player1Id,
         status: 'waiting',
+        mode: 'Mode A',
       })
       .select()
       .single();
