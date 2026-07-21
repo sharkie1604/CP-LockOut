@@ -1,2 +1,9 @@
 node_modules/
 .env
+
+# Temporary Audit Reports & Scripts
+*Audit_Report*.md
+*audit_report*.md
+*Audit*.md
+backend/inspect_db_schema.js
+*.log

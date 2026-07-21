@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getDeveloperTier } from './theme.js';
-import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch, startMatch, abandonMatch } from './api.js';
+import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch, startMatch, abandonMatch, API_BASE_URL } from './api.js';
 import { supabase } from './db.js';
 
 
@@ -89,7 +89,7 @@ function App() {
         if (session?.user) {
           let profile = null;
           try {
-            const res = await fetch(`http://localhost:5000/api/profile/${session?.user?.id}`);
+            const res = await fetch(`${API_BASE_URL}/api/profile/${session?.user?.id}`);
             if (res.ok) {
               const data = await res.json();
               if (data && data.id) {
@@ -172,7 +172,7 @@ function App() {
         try {
           let profile = null;
           try {
-            const res = await fetch(`http://localhost:5000/api/profile/${session?.user?.id}`);
+            const res = await fetch(`${API_BASE_URL}/api/profile/${session?.user?.id}`);
             if (res.ok) {
               const data = await res.json();
               if (data && data.id) {
@@ -328,7 +328,7 @@ function App() {
 
     setOnboardingLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/profile/verify-handle', {
+      const res = await fetch(`${API_BASE_URL}/api/profile/verify-handle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -357,7 +357,7 @@ function App() {
     setOnboardingError('');
     setOnboardingLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/profile/verify-handle', {
+      const res = await fetch(`${API_BASE_URL}/api/profile/verify-handle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -447,7 +447,7 @@ function App() {
 
       try {
         console.log("[POLLING TICK]", new Date().toISOString(), currentMatchId, activeMatchRef.current?.status);
-        const res = await fetch(`http://localhost:5000/api/matches/${currentMatchId}?t=${Date.now()}`);
+        const res = await fetch(`${API_BASE_URL}/api/matches/${currentMatchId}?t=${Date.now()}`);
         const data = await res.json();
         console.log("[POLLING RESPONSE PAYLOAD]", data);
         
@@ -475,7 +475,9 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const match = await createMatch(currentUser?.id, minRating, maxRating);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const match = await createMatch(currentUser?.id, minRating, maxRating, token);
       setActiveMatch(match);
     } catch (err) {
       setError(err.message || 'Failed to create match.');
@@ -492,7 +494,9 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const match = await joinMatch(currentUser?.id, roomCodeInput);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const match = await joinMatch(currentUser?.id, roomCodeInput, token);
       setActiveMatch(match);
     } catch (err) {
       setError(err.message || 'Failed to join match.');
@@ -506,9 +510,14 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`http://localhost:5000/api/matches/sync/${activeMatch.id}`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch(`${API_BASE_URL}/api/matches/sync/${activeMatch.id}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to refresh match status.');
@@ -528,10 +537,12 @@ function App() {
     if (activeMatch) {
       setLoading(true);
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
         if (activeMatch.status === 'active') {
-          await abandonMatch(currentUser?.id, activeMatch.id);
+          await abandonMatch(currentUser?.id, activeMatch.id, token);
         } else {
-          await leaveMatch(currentUser?.id, activeMatch.id);
+          await leaveMatch(currentUser?.id, activeMatch.id, token);
         }
       } catch (err) {
         console.warn('Failed to notify backend of exit:', err.message);
@@ -555,18 +566,18 @@ function App() {
       {/* Header */}
       <header className="border-b border-[#27272A] py-5 px-6 flex justify-between items-center bg-[#09090B] z-10">
         <div className="flex items-center space-x-3">
-          <span className="h-3 w-3 bg-[#06B6D4] animate-pulse"></span>
-          <h1 className="text-xl font-bold tracking-wider font-mono">LOCKOUT.IO</h1>
+          <span className="h-2 w-2 bg-[#06B6D4] animate-pulse"></span>
+          <h1 className="text-lg font-black tracking-widest font-mono text-white">LOCKOUT.IO</h1>
         </div>
         {currentUser && (
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
             <div className="flex items-center space-x-2">
-              <span className="text-xs text-slate-400 font-mono">LOGGED IN AS:</span>
-              <span className="text-xs font-bold font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser?.handle || 'NEWBIE'}</span>
+              <span className="text-[10px] text-slate-500 font-mono tracking-wider">LOGGED IN AS:</span>
+              <span className="text-xs font-black font-mono text-[#06B6D4] uppercase tracking-widest">{currentUser?.handle || 'NEWBIE'}</span>
             </div>
             <button
               onClick={() => supabase.auth.signOut()}
-              className="px-3 py-1 bg-[#09090B] border border-[#27272A] hover:border-[#EF4444] text-xs font-bold font-mono text-slate-400 hover:text-[#EF4444] transition-all"
+              className="px-4 py-1.5 bg-[#09090B] border border-[#27272A] hover:border-[#EF4444] text-[10px] font-bold font-mono text-slate-400 hover:text-[#EF4444] transition-all duration-200 tracking-wider"
             >
               LOGOUT
             </button>
@@ -967,15 +978,15 @@ function App() {
           <div className="space-y-6">
             {/* Arena Header Status Panel */}
             <div className="bg-[#18181B] border border-[#27272A] p-6 flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 <div className="flex items-center space-x-3">
                   <span className={`h-2.5 w-2.5 rounded-full ${activeMatch.status === 'active' ? 'bg-[#10B981]' : 'bg-[#EF4444]'}`}></span>
-                  <span className="text-sm font-bold font-mono uppercase tracking-wider text-slate-300">
-                    ROOM CODE: <span className="text-white bg-[#09090B] px-2 py-0.5 border border-[#27272A] font-sans">{activeMatch.room_code}</span>
+                  <span className="text-xs font-bold font-mono uppercase tracking-widest text-slate-400">
+                    ROOM CODE: <span className="text-white bg-[#09090B] px-2 py-0.5 border border-[#27272A] font-mono tracking-normal ml-1">{activeMatch.room_code}</span>
                   </span>
                 </div>
-                <div className="text-xs text-slate-400 font-mono">
-                  STATUS: <span className="uppercase text-white font-bold">{activeMatch.status}</span>
+                <div className="text-[10px] text-slate-500 font-mono tracking-wider">
+                  STATUS: <span className="uppercase text-white font-bold tracking-widest">{activeMatch.status}</span>
                 </div>
               </div>
 
@@ -984,13 +995,13 @@ function App() {
                 <button
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="bg-[#18181B] border border-[#27272A] hover:border-[#06B6D4] hover:text-white text-slate-300 px-4 py-2 text-xs font-mono tracking-wider transition-all duration-200 rounded-none"
+                  className="bg-[#09090B] border border-[#27272A] hover:border-[#06B6D4] hover:text-[#06B6D4] text-slate-300 px-5 py-2 text-xs font-bold font-mono tracking-wider transition-all duration-200 rounded-none"
                 >
                   {loading ? 'RELOADING...' : 'REFRESH STATUS'}
                 </button>
                 <button
                   onClick={handleLeaveRoom}
-                  className="bg-[#18181B] border border-red-500/50 hover:bg-red-500 hover:text-black text-red-500 px-4 py-2 text-xs font-mono tracking-wider transition-all duration-200 rounded-none"
+                  className="bg-[#09090B] border border-red-500/50 hover:bg-red-500 hover:text-black text-red-500 px-5 py-2 text-xs font-bold font-mono tracking-wider transition-all duration-200 rounded-none"
                 >
                   LEAVE ROOM
                 </button>
@@ -1002,22 +1013,14 @@ function App() {
               {/* Player 1 Card */}
               <div className="bg-[#18181B] border border-[#27272A] p-6 flex justify-between items-center">
                 <div>
-                  <span className="text-xs text-slate-400 font-mono">PLAYER 1 (CHALLENGER)</span>
-                  <div className="text-lg font-bold flex items-center space-x-2 mt-1">
-                    <span>{player1Profile?.handle || 'Unknown'}</span>
-                    {p1Tier && (
-                      <span 
-                        className="text-xs px-2 py-0.5 bg-[#09090B] border font-mono font-bold uppercase"
-                        style={{ color: p1Tier.colorHex, borderColor: p1Tier.colorHex }}
-                      >
-                        {p1Tier.name}
-                      </span>
-                    )}
+                  <span className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">PLAYER 1 (CHALLENGER)</span>
+                  <div className="text-lg font-black font-mono text-white mt-1 uppercase tracking-wider">
+                    {player1Profile?.handle || 'Unknown'}
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-slate-400 font-mono">SCORE</span>
-                  <div className="text-3xl font-extrabold font-mono text-[#10B981] mt-0.5">
+                  <span className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">SCORE</span>
+                  <div className="text-4xl font-black font-mono text-[#06B6D4] mt-0.5 tracking-wider">
                     {activeMatch.player_1_score || 0}
                   </div>
                 </div>
@@ -1028,32 +1031,32 @@ function App() {
                 {activeMatch.player_2_id ? (
                   <>
                     <div>
-                      <span className="text-xs text-slate-400 font-mono">PLAYER 2 (OPPONENT)</span>
-                      <div className="text-lg font-bold flex items-center space-x-2 mt-1">
-                        <span>{player2Profile?.handle || 'Unknown'}</span>
-                        {p2Tier && (
-                          <span 
-                            className="text-xs px-2 py-0.5 bg-[#09090B] border font-mono font-bold uppercase"
-                            style={{ color: p2Tier.colorHex, borderColor: p2Tier.colorHex }}
-                          >
-                            {p2Tier.name}
-                          </span>
-                        )}
+                      <span className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">PLAYER 2 (OPPONENT)</span>
+                      <div className="text-lg font-black font-mono text-white mt-1 uppercase tracking-wider">
+                        {player2Profile?.handle || 'Unknown'}
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-xs text-slate-400 font-mono">SCORE</span>
-                      <div className="text-3xl font-extrabold font-mono text-[#10B981] mt-0.5">
+                      <span className="text-[10px] text-slate-500 font-mono tracking-widest uppercase">SCORE</span>
+                      <div className="text-4xl font-black font-mono text-[#06B6D4] mt-0.5 tracking-wider">
                         {activeMatch.player_2_score || 0}
                       </div>
                     </div>
                   </>
                 ) : (
-                  <div className="w-full flex items-center justify-between text-slate-500 py-2">
-                    <div className="flex items-center space-x-3">
-                      <span className="h-2 w-2 bg-[#EF4444] animate-ping rounded-full"></span>
-                      <span className="font-mono text-xs uppercase tracking-wider">Waiting for Opponent to Join...</span>
+                  <div className="w-full flex flex-col items-center justify-center py-2 space-y-2 border border-dashed border-[#27272A] bg-[#09090B] animate-pulse">
+                    <div className="flex items-center space-x-2">
+                      <span className="h-2 w-2 bg-[#EF4444] rounded-full relative flex">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#EF4444] opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-[#EF4444]"></span>
+                      </span>
+                      <span className="font-mono text-xs font-bold text-slate-400 uppercase tracking-widest">
+                        WAITING FOR OPPONENT TO JOIN
+                      </span>
                     </div>
+                    <span className="font-mono text-[9px] text-slate-600 uppercase">
+                      ARENA ACCESS KEY COMMITTED
+                    </span>
                   </div>
                 )}
               </div>
@@ -1070,11 +1073,18 @@ function App() {
                 </div>
                 {currentUser?.id === activeMatch.player_1_id ? (
                   <button 
-                    onClick={() => {
+                    onClick={async () => {
                       setLoading(true);
-                      startMatch(activeMatch.id, currentUser?.id)
-                        .catch(err => setError(err.message))
-                        .finally(() => setLoading(false));
+                      try {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        const token = session?.access_token;
+                        const match = await startMatch(activeMatch.id, currentUser?.id, token);
+                        setActiveMatch(match);
+                      } catch (err) {
+                        setError(err.message);
+                      } finally {
+                        setLoading(false);
+                      }
                     }}
                     disabled={loading}
                     className="bg-[#09090B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] px-8 py-4 text-sm font-bold font-mono tracking-wider transition-all duration-200 rounded-none disabled:opacity-50"

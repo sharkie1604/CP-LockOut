@@ -3,8 +3,10 @@ import axios from 'axios';
 import supabase from './db.js';
 import { createMatch, joinMatch, leaveMatch, startMatch, broadcastMatchUpdate } from './matchController.js';
 import { freePlayers, triggerEloCalculation } from './matchWorker.js';
+import { requireAuth } from './middleware/auth.js';
 
 const router = express.Router();
+const syncCooldowns = new Map();
 
 async function injectProfiles(match) {
   if (!match) return match;
@@ -24,11 +26,15 @@ async function injectProfiles(match) {
 }
 
 // POST /create
-router.post('/create', async (req, res) => {
+router.post('/create', requireAuth, async (req, res) => {
   const { player1Id, minRating, maxRating } = req.body;
 
   if (!player1Id || minRating === undefined || maxRating === undefined) {
     return res.status(400).json({ error: 'Missing required parameters: player1Id, minRating, maxRating' });
+  }
+
+  if (req.user.id !== player1Id) {
+    return res.status(403).json({ error: 'Forbidden: Player ID mismatch' });
   }
 
   try {
@@ -41,11 +47,15 @@ router.post('/create', async (req, res) => {
 });
 
 // POST /join
-router.post('/join', async (req, res) => {
+router.post('/join', requireAuth, async (req, res) => {
   const { player2Id, roomCode } = req.body;
 
   if (!player2Id || !roomCode) {
     return res.status(400).json({ error: 'Missing required parameters: player2Id, roomCode' });
+  }
+
+  if (req.user.id !== player2Id) {
+    return res.status(403).json({ error: 'Forbidden: Player ID mismatch' });
   }
 
   try {
@@ -58,12 +68,16 @@ router.post('/join', async (req, res) => {
 });
 
 // POST /:id/start
-router.post('/:id/start', async (req, res) => {
+router.post('/:id/start', requireAuth, async (req, res) => {
   const { id } = req.params;
   const { playerId } = req.body;
 
   if (!playerId) {
     return res.status(400).json({ error: 'Missing required parameter: playerId' });
+  }
+
+  if (req.user.id !== playerId) {
+    return res.status(403).json({ error: 'Forbidden: Player ID mismatch' });
   }
 
   try {
@@ -247,11 +261,15 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /leave
-router.post('/leave', async (req, res) => {
+router.post('/leave', requireAuth, async (req, res) => {
   const { playerId, matchId } = req.body;
 
   if (!playerId || !matchId) {
     return res.status(400).json({ error: 'Missing required parameters: playerId, matchId' });
+  }
+
+  if (req.user.id !== playerId) {
+    return res.status(403).json({ error: 'Forbidden: Player ID mismatch' });
   }
 
   try {
@@ -264,11 +282,15 @@ router.post('/leave', async (req, res) => {
 });
 
 // POST /abandon
-router.post('/abandon', async (req, res) => {
+router.post('/abandon', requireAuth, async (req, res) => {
   const { playerId, matchId } = req.body;
 
   if (!playerId || !matchId) {
     return res.status(400).json({ error: 'Missing required parameters: playerId, matchId' });
+  }
+
+  if (req.user.id !== playerId) {
+    return res.status(403).json({ error: 'Forbidden: Player ID mismatch' });
   }
 
   try {
@@ -324,7 +346,7 @@ router.post('/abandon', async (req, res) => {
 });
 
 // POST /sync/:id
-router.post('/sync/:id', async (req, res) => {
+router.post('/sync/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
   try {
     // 1. Fetch match state
@@ -337,6 +359,18 @@ router.post('/sync/:id', async (req, res) => {
     if (error || !match) {
       return res.status(404).json({ error: 'Match not found' });
     }
+
+    if (req.user.id !== match.player_1_id && req.user.id !== match.player_2_id) {
+      return res.status(403).json({ error: 'Forbidden: Unauthorized sync attempt' });
+    }
+
+    // 2. Cooldown Guard (3 seconds)
+    const lastSynced = syncCooldowns.get(id) || 0;
+    const now = Date.now();
+    if (now - lastSynced < 3000) {
+      return res.status(429).json({ error: 'Sync throttled. Please wait.' });
+    }
+    syncCooldowns.set(id, now);
 
     if (match.status !== 'active') {
       match = await injectProfiles(match);

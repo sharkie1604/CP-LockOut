@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 /**
  * Creates a new lockout match.
@@ -8,11 +8,12 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
  * @param {number} maxRating 
  * @returns {Promise<Object>} The created match object.
  */
-export async function createMatch(player1Id, minRating, maxRating) {
+export async function createMatch(player1Id, minRating, maxRating, token) {
   const response = await fetch(`${API_BASE_URL}/api/matches/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ player1Id, minRating, maxRating }),
   });
@@ -32,11 +33,12 @@ export async function createMatch(player1Id, minRating, maxRating) {
  * @param {string} roomCode 
  * @returns {Promise<Object>} The updated match object.
  */
-export async function joinMatch(player2Id, roomCode) {
+export async function joinMatch(player2Id, roomCode, token) {
   const response = await fetch(`${API_BASE_URL}/api/matches/join`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ player2Id, roomCode }),
   });
@@ -71,11 +73,12 @@ export async function getMatch(matchId) {
  * @param {string} matchId 
  * @returns {Promise<Object>} The updated match or status result.
  */
-export async function leaveMatch(playerId, matchId) {
+export async function leaveMatch(playerId, matchId, token) {
   const response = await fetch(`${API_BASE_URL}/api/matches/leave`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ playerId, matchId }),
   });
@@ -95,11 +98,12 @@ export async function leaveMatch(playerId, matchId) {
  * @param {string} playerId 
  * @returns {Promise<Object>} The started match object.
  */
-export async function startMatch(matchId, playerId) {
+export async function startMatch(matchId, playerId, token) {
   const response = await fetch(`${API_BASE_URL}/api/matches/${matchId}/start`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ playerId }),
   });
@@ -135,11 +139,12 @@ export async function getActiveMatch(playerId) {
  * @param {string} matchId 
  * @returns {Promise<Object>} The updated match.
  */
-export async function abandonMatch(playerId, matchId) {
+export async function abandonMatch(playerId, matchId, token) {
   const response = await fetch(`${API_BASE_URL}/api/matches/abandon`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify({ playerId, matchId }),
   });

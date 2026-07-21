@@ -4,10 +4,6 @@ import supabase from './db.js';
 
 const router = express.Router();
 
-// Temporary in-memory storage for verification tokens. 
-// Keys: handle (lowercased), Values: token
-// In production, this should be moved to Redis or a database table with an expiry.
-const verificationTokens = new Map();
 
 // POST /verify-handle
 router.post('/verify-handle', async (req, res) => {
@@ -24,7 +20,7 @@ router.post('/verify-handle', async (req, res) => {
     if (userId) {
       const { data: existingUser, error: checkError } = await supabase
         .from('users')
-        .select('status')
+        .select('status, cf_handle')
         .eq('id', userId)
         .maybeSingle();
 
@@ -35,11 +31,20 @@ router.post('/verify-handle', async (req, res) => {
 
     // 1. Initial Request: Generate and return a unique token
     if (!check) {
-      let token = verificationTokens.get(normalizedHandle);
-      if (!token) {
-        token = `LOCKOUT-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
-        verificationTokens.set(normalizedHandle, token);
+      const token = `LOCKOUT-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+      
+      if (userId) {
+        const { error: updateErr } = await supabase
+          .from('users')
+          .update({ cf_handle: token })
+          .eq('id', userId);
+        
+        if (updateErr) {
+          console.error('[TOKEN PERSIST ERROR]:', updateErr.message);
+          return res.status(500).json({ error: `Failed to save token to database: ${updateErr.message}` });
+        }
       }
+
       return res.status(200).json({
         requiresVerification: true,
         token,
@@ -48,10 +53,21 @@ router.post('/verify-handle', async (req, res) => {
     }
 
     // 2. Verification Check Request
-    const token = verificationTokens.get(normalizedHandle);
-    if (!token) {
-      return res.status(400).json({ error: 'No active verification session found. Please request a new token.' });
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required for verification check.' });
     }
+
+    const { data: existingUser, error: fetchErr } = await supabase
+      .from('users')
+      .select('cf_handle')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (fetchErr || !existingUser || !existingUser.cf_handle) {
+      return res.status(400).json({ error: 'No active verification token found in database. Please request a new token.' });
+    }
+
+    const token = existingUser.cf_handle;
 
     // Fetch user info from Codeforces API
     const cfRes = await axios.get(`https://codeforces.com/api/user.info?handles=${handle}`);
@@ -70,10 +86,6 @@ router.post('/verify-handle', async (req, res) => {
     if (firstNameMatch || lastNameMatch) {
       // SUCCESS: Token matches!
       const rating = userProfile.rating || 0;
-      
-      if (!userId) {
-        return res.status(400).json({ error: 'User ID is required for verification.' });
-      }
 
       const payload = {
         name,
@@ -81,7 +93,8 @@ router.post('/verify-handle', async (req, res) => {
         grad_year: gradYear,
         handle: userProfile.handle,
         rating,
-        status: 'VERIFIED'
+        status: 'VERIFIED',
+        cf_handle: null // Clear the token now that it's verified
       };
 
       // Update the user's permanent record in the Supabase 'users' table targeting their authenticated ID
@@ -103,9 +116,6 @@ router.post('/verify-handle', async (req, res) => {
         console.warn(`[ONBOARDING DB UPDATE FAILED] No rows updated for userId: ${userId}`);
         return res.status(400).json({ error: 'User profile not found in database. Please ensure signup trigger completed.' });
       }
-
-      // Clear the token state
-      verificationTokens.delete(normalizedHandle);
 
       return res.status(200).json({ success: true, message: 'Profile verified and updated successfully.' });
     } else {
