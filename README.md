@@ -1,4 +1,4 @@
-# 🔒 LOCKOUT.IO
+# 🔒 CP-LOCKOUT
 
 A competitive programming 1v1 lockout platform featuring automated Codeforces handle ownership verification and real-time match tracking.
 
