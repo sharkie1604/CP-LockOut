@@ -127,3 +127,27 @@ export async function getActiveMatch(playerId) {
   const data = await response.json();
   return data.match;
 }
+
+/**
+ * Abandons an active lockout match and assigns the win to the other player.
+ * 
+ * @param {string} playerId 
+ * @param {string} matchId 
+ * @returns {Promise<Object>} The updated match.
+ */
+export async function abandonMatch(playerId, matchId) {
+  const response = await fetch(`${API_BASE_URL}/api/matches/abandon`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ playerId, matchId }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to abandon match');
+  }
+
+  return response.json();
+}

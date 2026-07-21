@@ -4,7 +4,7 @@ import { calculateNewRatings } from './elo.js';
 import { broadcastMatchUpdate } from './matchController.js';
 
 // Calculates and updates Elo ratings for completed match players
-async function triggerEloCalculation(matchId) {
+export async function triggerEloCalculation(matchId) {
   try {
     console.log(`[ELO] Triggering Elo calculation for match ${matchId}`);
     
@@ -88,7 +88,7 @@ async function triggerEloCalculation(matchId) {
 /**
  * Helper to release players from a match back to 'free' status.
  */
-async function freePlayers(player1Id, player2Id) {
+export async function freePlayers(player1Id, player2Id) {
   try {
     const { error } = await supabase
       .from('users')
@@ -202,9 +202,7 @@ async function processActiveMatches() {
         .eq('id', match.id);
         
       await freePlayers(match.player_1_id, match.player_2_id);
-      
-      const updatedMatch = { ...match, status: 'ABANDONED', winner_id: winnerId };
-      broadcastMatchUpdate(match.id, updatedMatch).catch(e => console.error(e));
+      broadcastMatchUpdate(match.id, { ...match, status: 'ABANDONED', winner_id: winnerId });
       continue;
     }
     activeMatchesToProcess.push(match);
@@ -264,10 +262,12 @@ async function processActiveMatches() {
     for (const submission of acceptedSubmissions) {
       const contestId = submission.problem.contestId;
       const index = submission.problem.index;
+      const subKey = `${contestId}${index}`.toUpperCase().trim();
 
-      const problemIndex = updatedProblems.findIndex(
-        (p) => p.contestId === contestId && p.index === index
-      );
+      const problemIndex = updatedProblems.findIndex((p) => {
+        const dbKey = `${p.contestId || ''}${p.index || p.problemCode || ''}`.replace(/[- ]/g, '').toUpperCase().trim();
+        return dbKey === subKey;
+      });
 
       if (problemIndex !== -1) {
         const problem = updatedProblems[problemIndex];
@@ -289,10 +289,35 @@ async function processActiveMatches() {
       const scoreColumn = role === 'player_1' ? 'player_1_score' : 'player_2_score';
       const currentScore = currentMatch[scoreColumn] || 0;
       const newScore = currentScore + scoreIncrement;
+      // Calculate scores
+      const p1Score = role === 'player_1' ? newScore : (currentMatch.player_1_score || 0);
+      const p2Score = role === 'player_2' ? newScore : (currentMatch.player_2_score || 0);
 
-      // Check if all problems are locked now
-      const allLocked = updatedProblems.every((p) => p.locked === true);
-      const nextStatus = allLocked ? 'completed' : 'active';
+      // Calculate remaining available points from unlocked/un-submitted problems
+      const remainingPoints = updatedProblems
+        .filter((p) => !p.locked)
+        .reduce((sum, p) => sum + (p.points || 0), 0);
+
+      let nextStatus = 'active';
+      let winnerId = null;
+
+      if (p1Score > p2Score + remainingPoints) {
+        nextStatus = 'FINISHED';
+        winnerId = currentMatch.player_1_id;
+      } else if (p2Score > p1Score + remainingPoints) {
+        nextStatus = 'FINISHED';
+        winnerId = currentMatch.player_2_id;
+      } else {
+        const allLocked = updatedProblems.every((p) => p.locked === true);
+        if (allLocked) {
+          nextStatus = 'FINISHED';
+          if (p1Score > p2Score) {
+            winnerId = currentMatch.player_1_id;
+          } else if (p2Score > p1Score) {
+            winnerId = currentMatch.player_2_id;
+          }
+        }
+      }
 
       // Update match row
       const { data: finalMatch, error: updateError } = await supabase
@@ -301,7 +326,7 @@ async function processActiveMatches() {
           problems: updatedProblems,
           [scoreColumn]: newScore,
           status: nextStatus,
-          ...(allLocked ? { completed_at: new Date().toISOString() } : {}),
+          winner_id: winnerId,
         })
         .eq('id', currentMatch.id)
         .select()
@@ -313,8 +338,8 @@ async function processActiveMatches() {
         // Broadcast the update immediately
         broadcastMatchUpdate(finalMatch.id, finalMatch);
 
-        if (allLocked) {
-          console.log(`[MATCH COMPLETE] Match ${currentMatch.id} completed! All problems solved.`);
+        if (nextStatus === 'FINISHED') {
+          console.log(`[MATCH COMPLETE] Match ${currentMatch.id} finished early or completed!`);
           await freePlayers(currentMatch.player_1_id, currentMatch.player_2_id);
           await triggerEloCalculation(currentMatch.id);
         }

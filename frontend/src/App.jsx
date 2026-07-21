@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getDeveloperTier } from './theme.js';
-import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch, startMatch } from './api.js';
+import { createMatch, joinMatch, getMatch, leaveMatch, getActiveMatch, startMatch, abandonMatch } from './api.js';
 import { supabase } from './db.js';
 
 
@@ -18,6 +18,7 @@ function App() {
   const [maxRating, setMaxRating] = useState(2000);
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [activeMatch, setActiveMatch] = useState(null);
+  const [matchResult, setMatchResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -430,19 +431,29 @@ function App() {
     restoreSession();
   }, [currentUser?.id]);
 
+  const activeMatchRef = useRef(activeMatch);
+  useEffect(() => {
+    activeMatchRef.current = activeMatch;
+  }, [activeMatch]);
+
   // Poll backend API for match state updates when in an active match
   useEffect(() => {
-    if (!activeMatch) return;
+    if (!activeMatch?.id) return;
 
-    console.log(`[POLLING] Initiating 1.5-second HTTP sync loop for match: ${activeMatch?.id}`);
+    console.log(`[POLLING] Initiating 2-second HTTP sync loop for match: ${activeMatch?.id}`);
     const interval = setInterval(async () => {
+      const currentMatchId = activeMatchRef.current?.id;
+      if (!currentMatchId) return;
+
       try {
-        const res = await fetch(`http://localhost:5000/api/matches/${activeMatch?.id}`);
+        console.log("[POLLING TICK]", new Date().toISOString(), currentMatchId, activeMatchRef.current?.status);
+        const res = await fetch(`http://localhost:5000/api/matches/${currentMatchId}?t=${Date.now()}`);
         const data = await res.json();
+        console.log("[POLLING RESPONSE PAYLOAD]", data);
         
         if (data && !data.error) {
-          if (data.status === 'ABANDONED' || data.status === 'ENDED' || data.status === 'finished') {
-            alert(`Match Ended: ${data.status}`);
+          if (data.status === 'FINISHED' || data.status === 'ABANDONED' || data.status === 'completed' || data.status === 'finished') {
+            setMatchResult(data);
             setActiveMatch(null);
             clearInterval(interval);
           } else {
@@ -452,10 +463,10 @@ function App() {
       } catch (err) {
         console.error("Sync error:", err);
       }
-    }, 1500);
+    }, 2000);
 
     return () => {
-      console.log(`[POLLING] Clearing 1.5-second HTTP sync loop.`);
+      console.log(`[POLLING] Clearing 2-second HTTP sync loop.`);
       clearInterval(interval);
     };
   }, [activeMatch?.id, currentUser?.id]);
@@ -495,8 +506,17 @@ function App() {
     setLoading(true);
     setError('');
     try {
-      const freshMatch = await getMatch(activeMatch.id);
-      setActiveMatch(freshMatch);
+      const res = await fetch(`http://localhost:5000/api/matches/sync/${activeMatch.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to refresh match status.');
+      setActiveMatch(data);
+      if (data.status === 'FINISHED' || data.status === 'ABANDONED' || data.status === 'completed' || data.status === 'finished') {
+        setMatchResult(data);
+        setActiveMatch(null);
+      }
     } catch (err) {
       setError(err.message || 'Failed to refresh match status.');
     } finally {
@@ -508,7 +528,11 @@ function App() {
     if (activeMatch) {
       setLoading(true);
       try {
-        await leaveMatch(currentUser?.id, activeMatch.id);
+        if (activeMatch.status === 'active') {
+          await abandonMatch(currentUser?.id, activeMatch.id);
+        } else {
+          await leaveMatch(currentUser?.id, activeMatch.id);
+        }
       } catch (err) {
         console.warn('Failed to notify backend of exit:', err.message);
       } finally {
@@ -736,7 +760,135 @@ function App() {
               </div>
             )}
     
-            {!activeMatch ? (
+            {matchResult ? (
+              /* DEDICATED VICTORY/DEFEAT RESULT SCREEN */
+              <div className="w-full max-w-4xl mx-auto bg-[#18181B] border border-[#27272A] p-8 shadow-2xl space-y-8 my-auto animate-fadeIn">
+                {/* Header Title */}
+                <div className="text-center space-y-2 pb-6 border-b border-[#27272A]">
+                  {matchResult.status === 'ABANDONED' ? (
+                    currentUser?.id === matchResult.winner_id ? (
+                      <h2 className="text-3xl font-black font-mono tracking-widest text-[#10B981] drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]">
+                        OPPONENT ABANDONED - VICTORY
+                      </h2>
+                    ) : (
+                      <h2 className="text-3xl font-black font-mono tracking-widest text-[#EF4444] drop-shadow-[0_0_15px_rgba(239,68,68,0.4)]">
+                        YOU ABANDONED - DEFEAT
+                      </h2>
+                    )
+                  ) : currentUser?.id === matchResult.winner_id ? (
+                    <h2 className="text-3xl font-black font-mono tracking-widest text-[#10B981] drop-shadow-[0_0_15px_rgba(16,185,129,0.4)]">
+                      VICTORY ACHIEVED
+                    </h2>
+                  ) : matchResult.winner_id ? (
+                    <h2 className="text-3xl font-black font-mono tracking-widest text-[#EF4444] drop-shadow-[0_0_15px_rgba(239,68,68,0.4)]">
+                      DEFEAT DETECTED
+                    </h2>
+                  ) : (
+                    <h2 className="text-3xl font-black font-mono tracking-widest text-[#F59E0B] drop-shadow-[0_0_15px_rgba(245,158,11,0.4)]">
+                      MATCH DRAWN
+                    </h2>
+                  )}
+                  <p className="text-slate-400 font-mono text-sm uppercase tracking-wider">
+                    ARENA WORKSPACE EXPULSION: {matchResult.status}
+                  </p>
+                </div>
+
+                {/* Scoreboard Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Player 1 Card */}
+                  <div className={`p-6 border flex flex-col justify-between ${
+                    matchResult.winner_id === matchResult.player_1_id 
+                      ? 'bg-[#10B981]/5 border-[#10B981] shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+                      : 'bg-[#09090B] border-[#27272A]'
+                  }`}>
+                    <div>
+                      <span className="text-xs text-slate-400 font-mono">PLAYER 1</span>
+                      <h3 className="text-xl font-bold font-mono text-white mt-1">
+                        {matchResult.player1_profile?.handle || 'Unknown'}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-mono uppercase mt-1">
+                        COLLEGE: {matchResult.player1_profile?.college || 'Unknown'}
+                      </p>
+                    </div>
+                    <div className="mt-8 border-t border-[#27272A] pt-4 flex justify-between items-baseline">
+                      <span className="text-xs text-slate-400 font-mono">LOCKOUT SCORE</span>
+                      <span className="text-3xl font-black font-mono text-[#06B6D4]">
+                        {matchResult.player_1_score || 0} PTS
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Player 2 Card */}
+                  <div className={`p-6 border flex flex-col justify-between ${
+                    matchResult.winner_id === matchResult.player_2_id 
+                      ? 'bg-[#10B981]/5 border-[#10B981] shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+                      : 'bg-[#09090B] border-[#27272A]'
+                  }`}>
+                    <div>
+                      <span className="text-xs text-slate-400 font-mono">PLAYER 2</span>
+                      <h3 className="text-xl font-bold font-mono text-white mt-1">
+                        {matchResult.player2_profile?.handle || 'Unknown'}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-mono uppercase mt-1">
+                        COLLEGE: {matchResult.player2_profile?.college || 'Unknown'}
+                      </p>
+                    </div>
+                    <div className="mt-8 border-t border-[#27272A] pt-4 flex justify-between items-baseline">
+                      <span className="text-xs text-slate-400 font-mono">LOCKOUT SCORE</span>
+                      <span className="text-3xl font-black font-mono text-[#06B6D4]">
+                        {matchResult.player_2_score || 0} PTS
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Problem Breakdown List */}
+                <div className="bg-[#09090B] border border-[#27272A] p-6 space-y-4">
+                  <h3 className="text-sm font-bold font-mono text-slate-300 uppercase tracking-widest mb-4">
+                    PROBLEM RESOLUTION BREAKDOWN
+                  </h3>
+                  <div className="space-y-3">
+                    {matchResult.problems && matchResult.problems.map((problem) => {
+                      const isLocked = problem.locked === true;
+                      const solver = isLocked 
+                        ? (problem.locked_by === matchResult.player_1_id 
+                          ? matchResult.player1_profile?.handle 
+                          : matchResult.player2_profile?.handle) 
+                        : null;
+                      return (
+                        <div key={`${problem.contestId}-${problem.index}`} className="flex justify-between items-center p-4 bg-[#18181B] border border-[#27272A]">
+                          <div>
+                            <span className="text-sm font-mono text-slate-200">{problem.name}</span>
+                            <span className="ml-2 text-xs font-mono text-[#06B6D4] px-1.5 py-0.5 bg-[#09090B] border border-[#27272A]">
+                              {problem.points} PTS
+                            </span>
+                          </div>
+                          <div className="text-xs font-mono">
+                            {isLocked ? (
+                              <span className="text-[#10B981] font-bold">
+                                LOCKED BY {solver || 'Unknown'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">UNSOLVED</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Exit Button */}
+                <div className="flex justify-center pt-4">
+                  <button
+                    onClick={() => setMatchResult(null)}
+                    className="bg-[#09090B] border border-[#06B6D4] hover:bg-[#06B6D4] hover:text-[#09090B] text-[#06B6D4] px-12 py-4 text-sm font-bold font-mono tracking-widest transition-all duration-200"
+                  >
+                    RETURN TO LOBBY
+                  </button>
+                </div>
+              </div>
+            ) : !activeMatch ? (
               /* LOBBY DASHBOARD */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 my-auto">
             {/* Create Room Area */}
